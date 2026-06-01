@@ -1,172 +1,141 @@
-# Consigliere
+# Consigliere-RXD
 
-A high-performance BSV indexer designed for scalable payment processing and real-time UTXO tracking.
-Built for payment processors that need real-time visibility, low latency,
-and cost-efficient blockchain monitoring at scale.
+A high-performance **Radiant (RXD)** indexer for scalable payment processing and
+real-time UTXO tracking. A fork of [DXS Consigliere](https://github.com/dxsapp/dxs-consigliere)
+(originally a Bitcoin SV / STAS indexer) adapted for the Radiant blockchain and
+its Glyph token protocol.
 
-- **Selective UTXO indexing** – Track only relevant payment and settlement addresses, not the full chain  
-- **High-throughput ready** – Designed for large volumes of micro-payments with minimal latency  
-- **Dynamic address onboarding** – Add new payment or merchant addresses instantly, without reindexing  
-- **Back-to-Genesis for STAS** – Full provenance verification for token-based payment flows  
-- **Real-time updates** – Live transaction and balance notifications via SignalR  
-- **RavenDB-powered** – Fast, scalable document storage optimized for transactional workloads  
+Built for exchanges, payment processors, and merchant backends that need
+real-time visibility, low latency, and cost-efficient blockchain monitoring —
+**without** running a full-chain indexer.
 
+- **Selective UTXO indexing** – Track only relevant payment/settlement addresses, not the full chain
+- **High-throughput ready** – Designed for large volumes of payments with minimal latency
+- **Dynamic address onboarding** – Add new addresses instantly at runtime, without reindexing
+- **Real-time updates** – Live transaction and balance notifications via SignalR
+- **RavenDB-powered** – Fast, scalable document storage for UTXO state and history
+- **Reorg-safe** – Detects and reverses chain reorganizations
 
----
-
-## 📌 Overview
-
-**Consigliere** is a high-performance blockchain indexer for the Bitcoin SV (BSV) network, purpose-built to handle **STAS token** transactions and fully resolve the **Back to Genesis** problem.  
-It maintains an accurate, real-time state of all STAS token UTXOs by tracing their provenance back to the original issuance transaction, ensuring reliable token ownership verification.
-
-Rather than indexing the entire blockchain, Consigliere is built around **selective UTXO indexing**. It monitors only explicitly configured addresses—such as payment, settlement, or merchant deposit addresses—making it well suited for high-throughput payment flows and micro-payment workloads. This targeted approach significantly reduces infrastructure load, storage requirements, and operational costs.
-
-Addresses can be **added dynamically at runtime**, allowing payment processors to onboard new merchants, rotate addresses, or scale transaction volume without reindexing or service interruption. Combined with real-time updates delivered via SignalR and a RavenDB-backed data model, Consigliere delivers low-latency visibility into both confirmed and unconfirmed funds, enabling fast payment detection, reconciliation, and settlement at scale.
-
----
-
-## 🚀 Key Features
-
-- **Selective UTXO Indexing**  
-  Indexes only explicitly configured addresses (payment, settlement, merchant deposits), avoiding full-chain address tracking and significantly reducing infrastructure load and operating costs.
-
-- **High-Throughput Payment Processing**  
-  Designed to handle large volumes of transactions and micro-payments with low latency, making it suitable for sustained, high-frequency payment workloads.
-
-- **STAS Back-to-Genesis Resolution**  
-  Fully resolves token provenance by tracing each STAS UTXO back to its original genesis transaction, ensuring accurate ownership and lineage verification.
-
-- **Multiple Transaction Types Support (STAS & P2PKH)**  
-  Natively indexes various transaction types, including STAS tokens and standard P2PKH transactions, enabling unified handling of token-based and native BSV payment flows.
-
-- **Dynamic Address Onboarding**  
-  Allows new addresses to be added at runtime without reindexing or downtime, supporting merchant onboarding, address rotation, and scalable payment operations.
-
-- **Real-Time Event Streaming (SignalR)**  
-  Push-based WebSocket notifications for transaction detection, balance changes, and UTXO state updates, enabling immediate reaction to incoming payments.
-
-- **RavenDB-Powered Data Model**  
-  Uses RavenDB’s document-oriented architecture for fast writes, efficient queries, and scalable storage of UTXO state and transaction history.
-
-- **Blockchain Reorganization Safety**  
-  Automatically detects and handles chain reorganizations, reindexing affected data to maintain a consistent and correct view of the blockchain state.
+> **Relationship to RXinDexer:** Consigliere-RXD is *not* a replacement for
+> [RXinDexer](https://github.com/RadiantBlockchain) (the canonical full-chain
+> Glyph/WAVE/Swap explorer & inventory indexer). It is complementary: a lean,
+> address-scoped, .NET-native payment/exchange gateway and an independent second
+> implementation useful for cross-validation.
 
 ---
 
-## 🛠 Tech Stack
+## Status
 
-- **Language:** C# (.NET)
-- **Blockchain:** Bitcoin SV (BSV)
+This fork is an in-progress adaptation. See [`RADIANT_ADAPTATION.md`](./RADIANT_ADAPTATION.md)
+for the full roadmap and what has changed vs. upstream.
+
+| Capability | State |
+| --- | --- |
+| Connect to Radiant node (JSON-RPC) | ✅ verified against regtest — reads chain tip |
+| Real-time block/tx ingestion (ZMQ) | ⏸️ needs `zmqpub*` enabled on the node |
+| Radiant address/key params (P2PKH, WIF) | ✅ identical to upstream (Radiant == Bitcoin byte prefixes) |
+| Radiant fee policy (10,000 photons/byte) | ✅ applied |
+| Selective P2PKH RXD indexing + SignalR | ✅ inherited from upstream engine |
+| Radiant ref parsing (OP_PUSHINPUTREF/singleton) | ✅ ref scanner, unit-tested |
+| Glyph envelope + CBOR metadata parsing | ✅ v1 + v2 Style A/B, unit-tested |
+| Glyph indexing wired into pipeline + API | ✅ refs/token on MetaOutput; `manage/glyph-ref`; verified e2e |
+| Block-path ingestion on regtest | ✅ RPC block scan parses real regtest blocks (fixed 3 BSV-vs-Radiant bugs) |
+| Real-time tx push (ZMQ deposits) | ⏸️ needs `zmqpub*` enabled on the node, then live deposit test |
+| **Radiant tx signing (P2PKH)** | 🚧 verify against node — M4 |
+| BSV SaaS providers (Bitails / WoC / JungleBus) | ⛔ disabled (BSV-only, no Radiant equivalent) |
+
+---
+
+## Tech Stack
+
+- **Language:** C# / .NET 9
+- **Blockchain:** Radiant (RXD)
 - **Database:** RavenDB
 - **Realtime Updates:** SignalR WebSockets
 
 ---
 
-## Docker Setup
+## Quick start (Docker Compose)
 
-[Docker hub](https://hub.docker.com/r/dxsapp/consigliere)
+Brings up Consigliere-RXD + RavenDB. Point it at a Radiant node:
+
+```bash
+# Edit docker-compose.yml env vars (RadiantNodeApi__*, ZmqClient__*, Network),
+# then:
+docker compose up --build
+```
+
+- App / Swagger: http://localhost:5000/swagger
+- RavenDB studio: http://localhost:8080
+
+## Docker (single container)
 
 ```bash
 docker run -p 5000:5000 \
   -e "RavenDb__Urls__0=http://ravendb:8080" \
   -e "RavenDb__DbName=Consigliere" \
-  -e "BsvNodeApi__BaseUrl=http://your-node:18332" \
-  -e "BsvNodeApi__User=your_user" \
-  -e "BsvNodeApi__Password=your_password" \
-  -e "ZmqClient__RawTx2Address=tcp://your-node:28332" \
-  -e "ZmqClient__RemovedFromMempoolBlockAddress=tcp://your-node:28332" \
-  -e "ZmqClient__DiscardedFromMempoolAddress=tcp://your-node:28332" \
-  -e "ZmqClient__HashBlock2Address=tcp://your-node:28332" \
-  dxsapp/consigliere:latest
+  -e "Network=Testnet" \
+  -e "RadiantNodeApi__BaseUrl=http://your-radiant-node:17443" \
+  -e "RadiantNodeApi__User=your_user" \
+  -e "RadiantNodeApi__Password=your_password" \
+  -e "ZmqClient__RawTx2Address=tcp://your-radiant-node:28332" \
+  -e "ZmqClient__RemovedFromMempoolBlockAddress=tcp://your-radiant-node:28332" \
+  -e "ZmqClient__DiscardedFromMempoolAddress=tcp://your-radiant-node:28332" \
+  -e "ZmqClient__HashBlock2Address=tcp://your-radiant-node:28332" \
+  consigliere-rxd:latest
 ```
 
-Use Admin API to add addresses/tokens to watch after startup.
+Use the Admin API to add addresses to watch after startup.
 
-## 📦 Manual Setup
+## Radiant node requirements
 
-> ⚠️ Consigliere was developed by **DXS** for internal operations. External deployment may require adjustments.
+Run a Radiant node with RPC + ZMQ enabled in `radiant.conf`:
 
-```bash
-# Clone the repository
-git clone https://github.com/dxsapp/dxs-consigliere.git
-cd dxs-consigliere/src/Dxs.Consigliere
+```ini
+server=1
+rpcuser=your_user
+rpcpassword=your_password
+# default RPC ports: mainnet 7332, testnet 27332, regtest 17443
+zmqpubrawtx=tcp://0.0.0.0:28332
+zmqpubrawblock=tcp://0.0.0.0:28332
+zmqpubhashblock=tcp://0.0.0.0:28332
 ```
+
+> Radiant regtest uses testnet address/key parameters, so set `Network=Testnet`
+> when pointing at a regtest node.
 
 ## Configuration
 
-### Using appsettings.json
+`appsettings.json` keys (override via env vars using `__` as the separator):
 
-Create `src/Dxs.Consigliere/appsettings.Development.json` for local development:
+- `Network` — `"Mainnet"` or `"Testnet"` (use `Testnet` for regtest)
+- `RadiantNodeApi` — `BaseUrl`, `User`, `Password` (JSON-RPC)
+- `ZmqClient` — the four ZMQ endpoints
+- `RavenDb` — `Urls`, `DbName`
+- `TransactionFilter` — bootstrap `Addresses` (and, later, Glyph `Tokens`)
 
-```json
-{
-  "Network": "Testnet",
-  "RavenDb": {
-    "Urls": ["http://localhost:8080"],
-    "DbName": "Consigliere"
-  },
-  "ZmqClient": {
-    "RawTx2Address": "tcp://localhost:28332",
-    "RemovedFromMempoolBlockAddress": "tcp://localhost:28332",
-    "DiscardedFromMempoolAddress": "tcp://localhost:28332",
-    "HashBlock2Address": "tcp://localhost:28332"
-  },
-  "BsvNodeApi": {
-    "BaseUrl": "http://localhost:18332",
-    "User": "your_rpc_user",
-    "Password": "your_rpc_password"
-  },
-  "TransactionFilter": {
-    "Addresses": [],
-    "Tokens": []
-  }
-}
-```
-
-**Configuration Notes**:
-- `Network`: Set to `"Mainnet"` or `"Testnet"` to match your BSV node
-- RavenDB: `8080` (default)
-- BSV Node RPC: `8332` (mainnet) or `18332` (testnet)
-- BSV Node ZMQ: `28332` (default)
-
-### Managing Watched Addresses & Tokens
-
-Use the **Admin API** to dynamically add/remove addresses and tokens (recommended):
+### Managing watched addresses (Admin API)
 
 ```bash
 # Add an address to watch
 POST /api/admin/manage/address
 {
-  "address": "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa",
-  "name": "Genesis Address"
-}
-
-# Add a STAS token to watch
-POST /api/admin/manage/stas-token
-{
-  "tokenId": "542a56ec7a307fd68bf925d8f4d525ca61e868ad",
-  "symbol": "USDT-TON"
+  "address": "1YourRadiantP2PKHAddress...",
+  "name": "Exchange hot wallet"
 }
 ```
 
-These settings persist in RavenDB and survive restarts. Alternatively, you can bootstrap addresses/tokens in `TransactionFilter` config, but the API approach is more flexible.
+These persist in RavenDB and survive restarts.
 
-## Run
+## Build & run from source
 
 ```bash
-# Restore dependencies
-dotnet restore
-
-# Build the project
+dotnet restore   # in ./src
 dotnet build
-
-# Run the project
-dotnet run
+dotnet run --project Dxs.Consigliere
 ```
 
-## Usage
-
-Swagger can be found at the http://localhost:5000/swagger
+Swagger: http://localhost:5000/swagger
 
 ## WebSocket API (SignalR)
 
@@ -196,52 +165,18 @@ const connection = new signalR.HubConnectionBuilder()
   .withAutomaticReconnect()
   .build();
 
-connection.on("OnTransactionFound", (hex) => {
-  console.log("tx found", hex);
-});
-
-connection.on("OnBalanceChanged", (balanceDto) => {
-  console.log("balance changed", balanceDto);
-});
+connection.on("OnTransactionFound", (hex) => console.log("tx found", hex));
+connection.on("OnBalanceChanged", (balanceDto) => console.log("balance", balanceDto));
 
 await connection.start();
-
 await connection.invoke("SubscribeToTransactionStream", {
-  address: "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa",
+  address: "1YourRadiantP2PKHAddress...",
   slim: false
 });
 ```
 
-### Client example (.NET, SignalR)
+## Credits
 
-```csharp
-using Microsoft.AspNetCore.SignalR.Client;
-
-var connection = new HubConnectionBuilder()
-    .WithUrl("http://localhost:5000/ws/consigliere")
-    .WithAutomaticReconnect()
-    .Build();
-
-connection.On<string>("OnTransactionFound", hex =>
-{
-    Console.WriteLine($"tx found {hex}");
-});
-
-connection.On<object>("OnBalanceChanged", balance =>
-{
-    Console.WriteLine($"balance changed {balance}");
-});
-
-await connection.StartAsync();
-
-await connection.InvokeAsync("SubscribeToTransactionStream", new
-{
-    address = "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa",
-    slim = false
-});
-```
-
-## Author
-
-- Author: [Oleg Panagushin](https://github.com/panagushin)  
-  CTO / System Architect — Crypto & FinTech
+Forked from [DXS Consigliere](https://github.com/dxsapp/dxs-consigliere) by
+[Oleg Panagushin](https://github.com/panagushin) / DXS, MIT-licensed. Radiant
+adaptation tracks the original architecture; see `RADIANT_ADAPTATION.md`.

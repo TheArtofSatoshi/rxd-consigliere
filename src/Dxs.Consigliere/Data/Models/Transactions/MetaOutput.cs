@@ -1,7 +1,10 @@
+using System.Collections.Generic;
+
 using Dxs.Bsv;
 using Dxs.Bsv.Models;
 using Dxs.Bsv.Script;
 using Dxs.Bsv.Script.Read;
+using Dxs.Bsv.Tokens.Glyph;
 
 namespace Dxs.Consigliere.Data.Models.Transactions;
 
@@ -31,6 +34,30 @@ public class MetaOutput
 
     public bool Spent { get; set; }
 
+    // --- Radiant Glyph token fields ---------------------------------------
+    // On Radiant a token output is identified by an induction ref in its
+    // scriptPubKey (no Back-to-Genesis). These mirror Dxs.Bsv GlyphOutputInfo and
+    // let the indexer key per-token balances by GlyphRef and surface token
+    // metadata for the reveal output. Null/empty for plain (non-Glyph) outputs.
+
+    /// <summary>Primary induction ref (singleton if present, else first), compact outpoint hex.</summary>
+    public string GlyphRef { get; set; }
+
+    /// <summary>All carried refs (compact outpoint hex), in script order.</summary>
+    public List<string> GlyphRefs { get; set; }
+
+    /// <summary>True if the primary ref is a singleton (NFT-style) ref.</summary>
+    public bool IsGlyphSingleton { get; set; }
+
+    /// <summary>Token type (ft/nft/dat/dmint/…) when this output reveals Glyph metadata.</summary>
+    public string GlyphTokenType { get; set; }
+
+    /// <summary>Token name from the reveal metadata, if present.</summary>
+    public string GlyphName { get; set; }
+
+    /// <summary>Token ticker/symbol from the reveal metadata, if present.</summary>
+    public string GlyphTicker { get; set; }
+
     public static string GetId(string txId, int vout) => $"{txId}:{vout}";
     public static string GetId(string txId, uint vout) => GetId(txId, (int)vout);
 
@@ -42,6 +69,10 @@ public class MetaOutput
             ? LockingScriptReader.Read(outPoint.ScriptPubKey, transaction.Network).GetSymbol()
             : null;
         var scriptPubKey = outPoint.ScriptPubKey.ToHexString();
+
+        // Radiant Glyph: extract induction refs + any embedded token metadata
+        // directly from the already-materialized scriptPubKey bytes.
+        var glyph = GlyphOutputInfo.FromScript(outPoint.ScriptPubKey);
 
         return new()
         {
@@ -60,6 +91,13 @@ public class MetaOutput
             Hash160 = output.Address?.Hash160.ToHexString(),
             ScriptPubKey = scriptPubKey,
             Symbol = symbol,
+
+            GlyphRef = glyph.PrimaryRefHex,
+            GlyphRefs = glyph.HasRef ? new List<string>(glyph.RefHexes) : null,
+            IsGlyphSingleton = glyph.IsSingleton,
+            GlyphTokenType = glyph.TokenInfo?.TokenTypeName,
+            GlyphName = glyph.TokenInfo?.Name,
+            GlyphTicker = glyph.TokenInfo?.Ticker,
 
             Spent = false
         };

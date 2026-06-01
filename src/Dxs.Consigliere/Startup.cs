@@ -54,7 +54,7 @@ public class Startup(IConfiguration configuration)
         // add bsv dependencies
         services
             .Configure<ZmqClientConfig>(configuration.GetSection("ZmqClient"))
-            .Configure<RpcConfig>(configuration.GetSection("BsvNodeApi"))
+            .Configure<RpcConfig>(configuration.GetSection("RadiantNodeApi"))
             .Configure<TransactionFilterConfig>(configuration.GetSection("TransactionFilter"))
             .AddSingleton<ITransactionStore>(sp => sp.GetRequiredService<IMetaTransactionStore>())
             .AddSingleton<ITxMessageBus, TxMessageBus>()

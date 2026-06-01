@@ -180,10 +180,13 @@ public class BlockProcessBackgroundTask : PeriodicTask, IDisposable
 
         context.Height = blockHeader.Height;
         context.Timestamp = blockHeader.Time;
+        // Set the expected tx count BEFORE processing: ProcessBlock compares the
+        // number of txs it reads against context.TransactionsCount, so assigning
+        // it afterwards left the check comparing against 0 ("count doesn't match
+        // 0/N"). The value comes from the block header's `nTx` field.
+        context.TransactionsCount = blockHeader.TransactionsCount;
 
         await HandleValidBlock(context);
-
-        context.TransactionsCount = blockHeader.TransactionsCount;
     }
 
     private async Task HandleValidBlock(BlockProcessContext context)

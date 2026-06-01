@@ -144,6 +144,52 @@ public enum OpCode : byte
     OP_NOP9 = 0xb8,
     OP_NOP10 = 0xb9,
 
+    // -----------------------------------------------------------------------
+    // Radiant-specific opcodes — induction refs + script introspection.
+    // Values transcribed verbatim from Radiant-Core/src/script/script.h.
+    //
+    // State separators reuse the 0xbd-0xbf range. The "push ref" opcodes and a
+    // few ref guards are SPECIAL: in the node tokenizer (GetScriptOp) each is
+    // followed by exactly 36 inline bytes (a ref = 32-byte txid + 4-byte vout).
+    // Specifically {0xd0, 0xd1, 0xd2, 0xd3, 0xd8} consume 36 inline bytes; all
+    // other opcodes below consume none. See OpCodeHelpers.ConsumesInlineRef.
+    OP_STATESEPARATOR = 0xbd,
+    OP_STATESEPARATORINDEX_UTXO = 0xbe,
+    OP_STATESEPARATORINDEX_OUTPUT = 0xbf,
+
+    OP_PUSHINPUTREF = 0xd0,                  // +36 inline bytes (normal/fungible ref)
+    OP_REQUIREINPUTREF = 0xd1,               // +36 inline bytes
+    OP_DISALLOWPUSHINPUTREF = 0xd2,          // +36 inline bytes
+    OP_DISALLOWPUSHINPUTREFSIBLING = 0xd3,   // +36 inline bytes
+    OP_REFHASHDATASUMMARY_UTXO = 0xd4,
+    OP_REFHASHVALUESUM_UTXOS = 0xd5,
+    OP_REFHASHDATASUMMARY_OUTPUT = 0xd6,
+    OP_REFHASHVALUESUM_OUTPUTS = 0xd7,
+    OP_PUSHINPUTREFSINGLETON = 0xd8,         // +36 inline bytes (singleton/NFT ref)
+    OP_REFTYPE_UTXO = 0xd9,
+    OP_REFTYPE_OUTPUT = 0xda,
+    OP_REFVALUESUM_UTXOS = 0xdb,
+    OP_REFVALUESUM_OUTPUTS = 0xdc,
+    OP_REFOUTPUTCOUNT_UTXOS = 0xdd,
+    OP_REFOUTPUTCOUNT_OUTPUTS = 0xde,
+    OP_REFOUTPUTCOUNTZEROVALUED_UTXOS = 0xdf,
+    OP_REFOUTPUTCOUNTZEROVALUED_OUTPUTS = 0xe0,
+    OP_REFDATASUMMARY_UTXO = 0xe1,
+    OP_REFDATASUMMARY_OUTPUT = 0xe2,
+    OP_CODESCRIPTHASHVALUESUM_UTXOS = 0xe3,
+    OP_CODESCRIPTHASHVALUESUM_OUTPUTS = 0xe4,
+    OP_CODESCRIPTHASHOUTPUTCOUNT_UTXOS = 0xe5,
+    OP_CODESCRIPTHASHOUTPUTCOUNT_OUTPUTS = 0xe6,
+    OP_CODESCRIPTHASHZEROVALUEDOUTPUTCOUNT_UTXOS = 0xe7,
+    OP_CODESCRIPTHASHZEROVALUEDOUTPUTCOUNT_OUTPUTS = 0xe8,
+    OP_CODESCRIPTBYTECODE_UTXO = 0xe9,
+    OP_CODESCRIPTBYTECODE_OUTPUT = 0xea,
+    OP_STATESCRIPTBYTECODE_UTXO = 0xeb,
+    OP_STATESCRIPTBYTECODE_OUTPUT = 0xec,
+    OP_PUSH_TX_STATE = 0xed,
+    OP_BLAKE3 = 0xee,
+    OP_K12 = 0xef,
+
     // template matching params
     OP_SMALLDATA = 0xf9,
     OP_SMALLINTEGER = 0xfa,

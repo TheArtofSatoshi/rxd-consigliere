@@ -1,0 +1,61 @@
+# Consigliere-RXD local stack: indexer + RavenDB.
+#
+# Point the indexer at a Radiant node via the RADIANT_* / NETWORK env vars (or an
+# .env file) — secrets are NOT baked into this file. RavenDB runs unsecured for
+# local development only — do NOT use this configuration in production.
+#
+#   RADIANT_RPC_URL   e.g. http://host.docker.internal:17443  (regtest)
+#   RADIANT_RPC_USER  e.g. radiantrpc
+#   RADIANT_RPC_PASS  the node rpcpassword
+#   RADIANT_ZMQ       e.g. tcp://host.docker.internal:28332
+#   NETWORK           Mainnet | Testnet  (use Testnet for regtest)
+
+services:
+  ravendb:
+    image: ravendb/ravendb:latest
+    container_name: consigliere-rxd-ravendb
+    ports:
+      - "8080:8080"
+      - "38888:38888"
+    environment:
+      - RAVEN_License_Eula_Accepted=true
+      - RAVEN_Setup_Mode=None
+      - RAVEN_Security_UnsecuredAccessAllowed=PublicNetwork
+      - RAVEN_ServerUrl=http://0.0.0.0:8080
+    volumes:
+      - ravendb-data:/opt/RavenDB/Server/RavenData
+    healthcheck:
+      # RavenDB takes ~20-40s to accept connections; gate the app on readiness.
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/localhost/8080' || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 10s
+    restart: unless-stopped
+
+  consigliere:
+    build:
+      context: .
+      dockerfile: DockerFile
+    container_name: consigliere-rxd
+    depends_on:
+      ravendb:
+        condition: service_healthy
+    ports:
+      - "5000:5000"
+    environment:
+      - ASPNETCORE_HTTP_PORTS=5000
+      - RavenDb__Urls__0=http://ravendb:8080
+      - RavenDb__DbName=Consigliere
+      - Network=${NETWORK:-Testnet}
+      - RadiantNodeApi__BaseUrl=${RADIANT_RPC_URL:-http://host.docker.internal:17443}
+      - RadiantNodeApi__User=${RADIANT_RPC_USER:-changeme}
+      - RadiantNodeApi__Password=${RADIANT_RPC_PASS:-changeme}
+      - ZmqClient__RawTx2Address=${RADIANT_ZMQ:-tcp://host.docker.internal:28332}
+      - ZmqClient__RemovedFromMempoolBlockAddress=${RADIANT_ZMQ:-tcp://host.docker.internal:28332}
+      - ZmqClient__DiscardedFromMempoolAddress=${RADIANT_ZMQ:-tcp://host.docker.internal:28332}
+      - ZmqClient__HashBlock2Address=${RADIANT_ZMQ:-tcp://host.docker.internal:28332}
+    restart: unless-stopped
+
+volumes:
+  ravendb-data:

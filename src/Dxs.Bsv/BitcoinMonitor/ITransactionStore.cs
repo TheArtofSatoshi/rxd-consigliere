@@ -12,6 +12,9 @@ public interface ITransactionStore
 
     Task<List<TokenId>> GetWatchingTokens();
 
+    /// <summary>Radiant Glyph refs to watch (compact outpoint hex), from config + DB.</summary>
+    Task<List<string>> GetWatchingGlyphRefs();
+
     Task<TransactionProcessStatus> SaveTransaction(
         Transaction transaction,
         long timestamp,

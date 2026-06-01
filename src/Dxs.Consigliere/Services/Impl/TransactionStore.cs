@@ -78,6 +78,30 @@ public class TransactionStore(
         return result;
     }
 
+    public async Task<List<string>> GetWatchingGlyphRefs()
+    {
+        using var session = store.GetSession();
+
+        var result = (config.Value.GlyphRefs ?? [])
+            .Where(r => !string.IsNullOrWhiteSpace(r))
+            .Select(r => r.ToLowerInvariant())
+            .ToList();
+
+        var query = session.Query<WatchingGlyphRef>()
+            .Select(x => x.GlyphRef)
+            .Distinct();
+
+        await using var stream = await session.Advanced.StreamAsync(query);
+
+        while (await stream.MoveNextAsync())
+        {
+            if (!string.IsNullOrWhiteSpace(stream.Current.Document))
+                result.Add(stream.Current.Document.ToLowerInvariant());
+        }
+
+        return result;
+    }
+
     private static readonly string UpdateStasAttributesQuery = $@"
 var stasInputsCount = 0;
 var inputsCount = this.{nameof(MetaTransaction.Inputs)}.length;

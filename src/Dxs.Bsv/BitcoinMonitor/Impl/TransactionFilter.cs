@@ -36,6 +36,7 @@ public class TransactionFilter : ITransactionFilter
     private readonly ConcurrentDictionary<string, Address> _watchingAddresses = new();
     private readonly ConcurrentDictionary<string, TokenId> _watchingTokens = new();
     private readonly ConcurrentDictionary<string, Address> _watchingTokensRedeemAddresses = new();
+    private readonly ConcurrentDictionary<string, byte> _watchingGlyphRefs = new();
 
     private IAgent<TxMessage> _messageHandler;
     private IDisposable _busSub;
@@ -69,6 +70,12 @@ public class TransactionFilter : ITransactionFilter
         _watchingTokensRedeemAddresses.TryAdd(tokenId.RedeemAddress.Value, tokenId.RedeemAddress);
     }
 
+    public void ManageUtxoSetForGlyphRef(string glyphRef)
+    {
+        if (!string.IsNullOrEmpty(glyphRef))
+            _watchingGlyphRefs.TryAdd(glyphRef.ToLowerInvariant(), 0);
+    }
+
     public int QueueLength() => _messageHandler.MessagesInQueue;
 
     #endregion
@@ -87,6 +94,9 @@ public class TransactionFilter : ITransactionFilter
             _watchingTokensRedeemAddresses.TryAdd(tokenId.RedeemAddress.Value, tokenId.RedeemAddress);
         }
 
+        foreach (var glyphRef in await _transactionStore.GetWatchingGlyphRefs())
+            _watchingGlyphRefs.TryAdd(glyphRef, 0);
+
         _messageHandler = Agent.Start<TxMessage>(Handle);
         _busSub = _txMessageBus.Subscribe(
             message => _messageHandler.Post(message),
@@ -99,6 +109,7 @@ public class TransactionFilter : ITransactionFilter
             {
                 WatchingAddresses = _watchingAddresses.Count,
                 WatchingTokens = _watchingTokens.Count,
+                WatchingGlyphRefs = _watchingGlyphRefs.Count,
             }
         );
     }
@@ -157,6 +168,22 @@ public class TransactionFilter : ITransactionFilter
                 save = true;
 
                 _addresses.Add(output.Address!.Value);
+            }
+
+            // Radiant Glyph: index outputs carrying a watched induction ref.
+            if (!_watchingGlyphRefs.IsEmpty)
+            {
+                var glyph = output.GetGlyph(transaction);
+                foreach (var refHex in glyph.RefHexes)
+                {
+                    if (_watchingGlyphRefs.ContainsKey(refHex))
+                    {
+                        save = true;
+                        if (output.Address?.Value is { } glyphAddress)
+                            _addresses.Add(glyphAddress);
+                        break;
+                    }
+                }
             }
         }
 

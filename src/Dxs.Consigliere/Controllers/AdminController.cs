@@ -85,6 +85,55 @@ public class AdminController(INetworkProvider networkProvider) : BaseController
         return Ok();
     }
 
+    [HttpPost("manage/glyph-ref")]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> ManageGlyphRef(
+        [FromBody] WatchGlyphRefRequest request,
+        [FromServices] IDocumentStore documentStore,
+        [FromServices] ITransactionFilter transactionFilter
+    )
+    {
+        var glyphRef = request.GlyphRef?.Trim().ToLowerInvariant();
+
+        // A ref is a 36-byte outpoint (32-byte txid + 4-byte vout) = 72 hex chars.
+        if (string.IsNullOrEmpty(glyphRef)
+            || glyphRef.Length != 72
+            || !IsHex(glyphRef))
+            return BadRequest($"Unable to parse Glyph ref (expected 72 hex chars): \"{request.GlyphRef}\"");
+
+        try
+        {
+            var watching = new WatchingGlyphRef
+            {
+                GlyphRef = glyphRef,
+                Name = request.Name,
+            };
+
+            if (await documentStore.AddEntity(watching))
+            {
+                transactionFilter.ManageUtxoSetForGlyphRef(glyphRef);
+            }
+        }
+        catch (Exception exception)
+        {
+            return InternalError(exception.Message);
+        }
+
+        return Ok();
+    }
+
+    private static bool IsHex(string s)
+    {
+        foreach (var c in s)
+        {
+            var ok = c is >= '0' and <= '9' or >= 'a' and <= 'f' or >= 'A' and <= 'F';
+            if (!ok) return false;
+        }
+
+        return true;
+    }
+
     [HttpGet("blockchain/sync-status")]
     [Produces(typeof(SyncStatusResponse))]
     public async Task<IActionResult> GetSyncState(
@@ -97,11 +146,14 @@ public class AdminController(INetworkProvider networkProvider) : BaseController
 
         using var session = documentStore.GetSession();
 
+        // FirstOrDefaultAsync (not FirstAsync): on a fresh DB with no processed
+        // blocks the set is empty, and FirstAsync throws "Sequence contains no
+        // elements" → 500. The null is already handled below.
         var topKnownBlock = await session
             .Query<BlockProcessContext>()
             .Where(x => x.Height != 0)
             .OrderByDescending(x => x.Height)
-            .FirstAsync();
+            .FirstOrDefaultAsync();
         var isReorg = topKnownBlock != null && top == topKnownBlock.Height && topHash != topKnownBlock.Id;
         var result = new SyncStatusResponse
         {

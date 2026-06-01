@@ -18,7 +18,9 @@ public static class DstasNativeReplayProof
             .Select(ToOutPoint)
             .ToArray();
 
-        var result = Sut.EvaluateTransaction(tx, new DictionaryPrevoutResolver(prevouts));
+        // Vendored DSTAS vectors are genuine BSV mainnet transactions, signed
+        // with the BSV (no hashOutputHashes) preimage — validate in BSV dialect.
+        var result = Sut.EvaluateTransaction(tx, new DictionaryPrevoutResolver(prevouts), BsvScriptExecutionPolicy.BsvCompat);
 
         Assert.Equal(vector.ExpectedSuccess, result.Success);
 
@@ -48,7 +50,9 @@ public static class DstasNativeReplayProof
 
             Assert.Equal(tx.Inputs.Count, prevouts.Length);
 
-            var result = Sut.EvaluateTransaction(tx, new DictionaryPrevoutResolver(prevouts));
+            // Vendored DSTAS vectors are genuine BSV mainnet transactions, signed
+        // with the BSV (no hashOutputHashes) preimage — validate in BSV dialect.
+        var result = Sut.EvaluateTransaction(tx, new DictionaryPrevoutResolver(prevouts), BsvScriptExecutionPolicy.BsvCompat);
 
             Assert.True(
                 result.Success,

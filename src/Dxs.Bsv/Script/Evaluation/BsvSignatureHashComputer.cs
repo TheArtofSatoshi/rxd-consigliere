@@ -2,13 +2,14 @@ using System;
 using System.Linq;
 
 using Dxs.Bsv.Protocol;
+using Dxs.Bsv.Transactions.Build;
 using NBitcoin;
 
 namespace Dxs.Bsv.ScriptEvaluation;
 
 internal static class BsvSignatureHashComputer
 {
-    public static uint256 Compute(Transaction tx, int inputIndex, byte rawSigHashType, TxOut spentOutput, NBitcoin.Script scriptCode)
+    public static uint256 Compute(Transaction tx, int inputIndex, byte rawSigHashType, TxOut spentOutput, NBitcoin.Script scriptCode, bool useRadiantSigHash = true)
     {
         if (inputIndex < 0 || inputIndex >= tx.Inputs.Count)
             throw new ArgumentOutOfRangeException(nameof(inputIndex));
@@ -25,7 +26,10 @@ internal static class BsvSignatureHashComputer
             throw new NotSupportedException($"Unsupported repo-native sighash type: 0x{rawSigHashType:x2}.");
         }
 
-        var size = 4 + 32 + 32 + 32 + 4 + BufferWriter.GetChunkSize(scriptCode.ToBytes(true)) + 8 + 4 + 32 + 4 + 4;
+        // +32 for Radiant's hashOutputHashes (the extra preimage field vs BSV),
+        // present only in the Radiant dialect.
+        var size = 4 + 32 + 32 + 32 + 4 + BufferWriter.GetChunkSize(scriptCode.ToBytes(true)) + 8 + 4
+                   + (useRadiantSigHash ? 32 : 0) + 32 + 4 + 4;
         var buffer = new BufferWriter(size);
 
         buffer.WriteUInt32Le((uint)tx.Version);
@@ -38,6 +42,12 @@ internal static class BsvSignatureHashComputer
         buffer.WriteChunk(scriptCode.ToBytes(true));
         buffer.WriteUInt64Le((ulong)spentOutput.Value.Satoshi);
         buffer.WriteUInt32Le(tx.Inputs[inputIndex].Sequence);
+        // Radiant inserts hashOutputHashes immediately before the regular
+        // hashOutputs (see RadiantSignatureHash + Radiant-Core interpreter.cpp).
+        // BSV/BCH does not — so the vendored BSV conformance vectors validate with
+        // useRadiantSigHash=false. Kept in lockstep with BaseInputBuilder.Preimage.
+        if (useRadiantSigHash)
+            WriteOutputHashes(buffer, tx, inputIndex, baseType);
         WriteOutputsHash(buffer, tx, inputIndex, baseType);
         buffer.WriteUInt32Le((uint)tx.LockTime.Value);
         buffer.WriteUInt32Le(rawSigHashType);
@@ -78,6 +88,40 @@ internal static class BsvSignatureHashComputer
             sequenceBuffer.WriteUInt32Le(input.Sequence);
 
         buffer.Write(Hash.Sha256Sha256(sequenceBuffer.Bytes));
+    }
+
+    /// <summary>
+    /// Radiant's hashOutputHashes — the extra preimage field, computed the same
+    /// way as <see cref="Transactions.Build.BaseInputBuilder"/> via
+    /// <see cref="RadiantSignatureHash"/>. NONE → zero; SINGLE → the matched
+    /// output's summary; else → all outputs.
+    /// </summary>
+    private static void WriteOutputHashes(BufferWriter buffer, Transaction tx, int inputIndex, byte baseType)
+    {
+        if (baseType == (byte)Dxs.Bsv.Script.SignatureHashType.SIGHASH_NONE)
+        {
+            buffer.Write(new byte[32]);
+            return;
+        }
+
+        if (baseType == (byte)Dxs.Bsv.Script.SignatureHashType.SIGHASH_SINGLE)
+        {
+            if (inputIndex >= tx.Outputs.Count)
+            {
+                buffer.Write(new byte[32]);
+                return;
+            }
+
+            var single = tx.Outputs[inputIndex];
+            buffer.Write(RadiantSignatureHash.HashOutputHashesSingle(
+                (ulong)single.Value.Satoshi, single.ScriptPubKey.ToBytes(true)));
+            return;
+        }
+
+        var outputs = tx.Outputs
+            .Select(x => ((ulong)x.Value.Satoshi, x.ScriptPubKey.ToBytes(true)))
+            .ToArray();
+        buffer.Write(RadiantSignatureHash.HashOutputHashes(outputs));
     }
 
     private static void WriteOutputsHash(BufferWriter buffer, Transaction tx, int inputIndex, byte baseType)

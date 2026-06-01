@@ -22,7 +22,9 @@ public class NativeInterpreterParityTests
                 .Select(ToOutPoint)
                 .ToArray();
 
-            var result = _sut.EvaluateTransaction(tx, new DictionaryPrevoutResolver(prevouts));
+            // Vendored DSTAS vectors are genuine BSV transactions (BSV preimage,
+            // no hashOutputHashes) — validate in BSV dialect, not Radiant.
+            var result = _sut.EvaluateTransaction(tx, new DictionaryPrevoutResolver(prevouts), BsvScriptExecutionPolicy.BsvCompat);
 
             Assert.Equal(vector.ExpectedSuccess, result.Success);
 
@@ -56,7 +58,9 @@ public class NativeInterpreterParityTests
 
                 Assert.Equal(tx.Inputs.Count, prevouts.Length);
 
-                var result = _sut.EvaluateTransaction(tx, new DictionaryPrevoutResolver(prevouts));
+                // Vendored DSTAS vectors are genuine BSV transactions (BSV preimage,
+            // no hashOutputHashes) — validate in BSV dialect, not Radiant.
+            var result = _sut.EvaluateTransaction(tx, new DictionaryPrevoutResolver(prevouts), BsvScriptExecutionPolicy.BsvCompat);
 
                 Assert.True(result.Success, $"{chain.Id}/{fixture.Label} failed: {string.Join(",", result.Inputs.Where(x => !x.Success).Select(x => $"{x.InputIndex}:{x.ErrorCode}"))}");
             }

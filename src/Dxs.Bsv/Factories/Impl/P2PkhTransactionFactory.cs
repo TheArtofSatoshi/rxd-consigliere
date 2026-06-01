@@ -133,7 +133,10 @@ public class P2PkhTransactionFactory(
 
         return new PreparedTransaction
         {
-            Transaction = transactionBuilder.SignAndBuildTransaction(Network.Mainnet),
+            // Derive the network from the signing keys (same pattern as
+            // StasBundleTransactionFactory) instead of hardcoding mainnet, so
+            // testnet/regtest transactions parse with the right params.
+            Transaction = transactionBuilder.SignAndBuildTransaction(fromKeys[^1].Network),
             UsedOutPoints = utxos,
             FeeSize = transactionBuilder.Size,
             Fee = fee

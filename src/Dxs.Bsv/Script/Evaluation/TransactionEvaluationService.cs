@@ -37,7 +37,10 @@ public sealed class TransactionEvaluationService
             }
 
             var spentOutput = new TxOut(Money.Satoshis((long)prevout.Satoshis), NBitcoin.Script.FromBytesUnsafe(prevout.ScriptPubKey));
-            var checker = new BsvTransactionChecker(nativeTransaction, i, spentOutput);
+            var checker = new BsvTransactionChecker(nativeTransaction, i, spentOutput)
+            {
+                UseRadiantSigHash = policy.UseRadiantSigHash,
+            };
             var context = new BsvScriptEvaluationContext
             {
                 ScriptVerify = policy.ScriptVerify,

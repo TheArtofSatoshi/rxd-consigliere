@@ -111,6 +111,7 @@ public class BaseInputBuilder
         (ulong)BufferWriter.GetChunkSize(OutPoint.ScriptPubKey) +
         8 + // Satoshis
         4 + // Sequence
+        32 + // Radiant hashOutputHashes (extra field vs BSV — see RadiantSignatureHash)
         32 + //Outputs hash
         4 + // Lock time
         4; // Signature type
@@ -144,6 +145,7 @@ public class BaseInputBuilder
         preimageBuffer.WriteChunk(OutPoint.ScriptPubKey);
         preimageBuffer.WriteUInt64Le(OutPoint.Satoshis); // 8
         preimageBuffer.WriteUInt32Le(Sequence); // 4
+        WriteOutputHashes(preimageBuffer, baseType); // 32 (Radiant-specific, precedes hashOutputs)
         WriteOutputsHash(preimageBuffer, baseType); // 32
         preimageBuffer.WriteUInt32Le(_txBuilder.LockTime); // 4
         preimageBuffer.WriteUInt32Le((uint)signatureHashType); // 4
@@ -275,6 +277,39 @@ public class BaseInputBuilder
         Hash.Sha256Sha256(buf.Bytes, hash);
 
         buffer.Write(hash.ToArray());
+    }
+
+    /// <summary>
+    /// Write Radiant's <c>hashOutputHashes</c> (the extra preimage field vs BSV).
+    /// Mirrors interpreter.cpp: zero for NONE; the single matched output for
+    /// SINGLE (in range); otherwise the summary over all outputs. See
+    /// <see cref="RadiantSignatureHash"/>.
+    /// </summary>
+    private void WriteOutputHashes(BufferWriter buffer, SignatureHashType baseType)
+    {
+        if (baseType == SignatureHashType.SIGHASH_NONE)
+        {
+            buffer.Write(new byte[32]);
+            return;
+        }
+
+        if (baseType == SignatureHashType.SIGHASH_SINGLE)
+        {
+            if (_idx >= _txBuilder.Outputs.Count)
+            {
+                buffer.Write(new byte[32]);
+                return;
+            }
+
+            var single = _txBuilder.Outputs[_idx];
+            buffer.Write(RadiantSignatureHash.HashOutputHashesSingle(single.Value, single.LockingScript));
+            return;
+        }
+
+        var outputs = _txBuilder.Outputs
+            .Select(x => (x.Value, x.LockingScript))
+            .ToArray();
+        buffer.Write(RadiantSignatureHash.HashOutputHashes(outputs));
     }
 
     private void WriteOutputsHash(BufferWriter buffer, SignatureHashType baseType)

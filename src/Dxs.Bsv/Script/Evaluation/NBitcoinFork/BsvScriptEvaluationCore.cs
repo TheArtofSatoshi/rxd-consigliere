@@ -109,6 +109,13 @@ namespace Dxs.Bsv.ScriptEvaluation.NBitcoinFork
 			_SpentOutput = spentOutput;
 		}
 
+		/// <summary>
+		/// Sighash dialect for this verification. <c>true</c> (default) = Radiant
+		/// preimage (with hashOutputHashes); <c>false</c> = plain BSV/BCH FORKID.
+		/// Set from <see cref="ScriptEvaluation.BsvScriptExecutionPolicy.UseRadiantSigHash"/>.
+		/// </summary>
+		public bool UseRadiantSigHash { get; set; } = true;
+
 
 		private PrecomputedTransactionData? _PrecomputedTransactionData;
 		public PrecomputedTransactionData PrecomputedTransactionData
@@ -2541,7 +2548,8 @@ namespace Dxs.Bsv.ScriptEvaluation.NBitcoinFork
 					checker.Index,
 					vchSig[^1],
 					checker.SpentOutput,
-					scriptCode);
+					scriptCode,
+						checker.UseRadiantSigHash);
 			}
 			catch (NotSupportedException)
 			{

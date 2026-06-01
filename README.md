@@ -1,102 +1,111 @@
-# Consigliere
+# Consigliere-RXD
 
-A high-performance BSV indexer designed for scalable payment processing and real-time UTXO tracking.
-Built for payment processors that need real-time visibility, low latency,
-and cost-efficient blockchain monitoring at scale.
+A high-performance **Radiant (RXD)** indexer for scalable payment processing and
+real-time UTXO tracking. A fork of [DXS Consigliere](https://github.com/dxsapp/dxs-consigliere)
+(originally a Bitcoin SV / STAS indexer) adapted for the Radiant blockchain and
+its **Glyph** token protocol.
 
-- **Selective UTXO indexing** – Track only relevant payment and settlement addresses, not the full chain  
-- **High-throughput ready** – Designed for large volumes of micro-payments with minimal latency  
-- **Dynamic address onboarding** – Add new payment or merchant addresses instantly, without reindexing  
-- **Back-to-Genesis for STAS** – Full provenance verification for token-based payment flows  
-- **Real-time updates** – Live transaction and balance notifications via SignalR  
-- **RavenDB-powered** – Fast, scalable document storage optimized for transactional workloads  
+Built for exchanges, payment processors, and merchant backends that need
+real-time visibility, low latency, and cost-efficient blockchain monitoring —
+**without** running a full-chain indexer.
 
+- **Selective UTXO indexing** – Track only relevant payment/settlement addresses (and Glyph tokens), not the full chain
+- **Thin-node mode** – Watch mempool + blocks over the native Radiant **P2P** protocol, no node ZMQ required
+- **Dynamic onboarding** – Add addresses or Glyph token refs at runtime, no reindex
+- **Real-time updates** – Live transaction and balance notifications via SignalR
+- **RavenDB-powered** – Fast, scalable document storage for UTXO state and history
+- **Reorg-safe** – Detects and reverses chain reorganizations
+
+> **Relationship to RXinDexer:** Consigliere-RXD is *not* a replacement for
+> RXinDexer (the canonical full-chain Glyph/WAVE/Swap explorer & inventory
+> indexer). It is complementary — a lean, address-scoped, .NET-native
+> payment/exchange gateway, and an independent second implementation useful for
+> cross-validation.
 
 ---
 
 ## 📌 Overview
 
-**Consigliere** is a high-performance blockchain indexer for the Bitcoin SV (BSV) network, purpose-built to handle **STAS token** transactions and fully resolve the **Back to Genesis** problem.  
-It maintains an accurate, real-time state of all STAS token UTXOs by tracing their provenance back to the original issuance transaction, ensuring reliable token ownership verification.
+**Consigliere-RXD** is a selective indexer for the Radiant (RXD) network. Rather
+than indexing the whole chain, it tracks only explicitly configured **addresses**
+and **Glyph token refs** — well suited for exchange deposit/hot-wallet
+monitoring, payment processing, and merchant settlement at low infrastructure
+cost. Watched entities can be added dynamically at runtime, and Consigliere-RXD
+also **builds and signs** consensus-valid Radiant transactions for the outbound
+(payout/withdrawal) side.
 
-Rather than indexing the entire blockchain, Consigliere is built around **selective UTXO indexing**. It monitors only explicitly configured addresses—such as payment, settlement, or merchant deposit addresses—making it well suited for high-throughput payment flows and micro-payment workloads. This targeted approach significantly reduces infrastructure load, storage requirements, and operational costs.
+### How Radiant differs from BSV (what this fork changes)
 
-Addresses can be **added dynamically at runtime**, allowing payment processors to onboard new merchants, rotate addresses, or scale transaction volume without reindexing or service interruption. Combined with real-time updates delivered via SignalR and a RavenDB-backed data model, Consigliere delivers low-latency visibility into both confirmed and unconfirmed funds, enabling fast payment detection, reconciliation, and settlement at scale.
+| Aspect | BSV (upstream) | Radiant (this fork) |
+| --- | --- | --- |
+| Tokens | STAS script template + Back-to-Genesis tracing | **Glyph**: consensus-enforced induction refs (`OP_PUSHINPUTREF`) + CBOR metadata — no genesis trace |
+| Token identity | script hash | 36-byte induction **ref** (txid+vout) in the scriptPubKey |
+| Signing | BIP143 `SIGHASH_FORKID` | same FORKID **plus** an extra `hashOutputHashes` preimage field |
+| Min-relay fee | ~0.05 sat/byte | **10,000 photons/byte** (post-V2 fork) |
+| Address/WIF bytes | — | **identical to Bitcoin** (no change needed) |
+| Realtime source | node ZMQ / SaaS | node ZMQ **or** native Radiant P2P (thin-node) |
 
----
+The full engineering record — every Radiant-specific change, the file map, and
+how each layer was verified against a live node — is in
+[`RADIANT_ADAPTATION.md`](./RADIANT_ADAPTATION.md).
 
-## 🚀 Key Features
+## 🚦 Status
 
-- **Selective UTXO Indexing**  
-  Indexes only explicitly configured addresses (payment, settlement, merchant deposits), avoiding full-chain address tracking and significantly reducing infrastructure load and operating costs.
+Adapted and verified against a live Radiant v3.0.0 regtest node:
 
-- **High-Throughput Payment Processing**  
-  Designed to handle large volumes of transactions and micro-payments with low latency, making it suitable for sustained, high-frequency payment workloads.
-
-- **STAS Back-to-Genesis Resolution**  
-  Fully resolves token provenance by tracing each STAS UTXO back to its original genesis transaction, ensuring accurate ownership and lineage verification.
-
-- **Multiple Transaction Types Support (STAS & P2PKH)**  
-  Natively indexes various transaction types, including STAS tokens and standard P2PKH transactions, enabling unified handling of token-based and native BSV payment flows.
-
-- **Dynamic Address Onboarding**  
-  Allows new addresses to be added at runtime without reindexing or downtime, supporting merchant onboarding, address rotation, and scalable payment operations.
-
-- **Real-Time Event Streaming (SignalR)**  
-  Push-based WebSocket notifications for transaction detection, balance changes, and UTXO state updates, enabling immediate reaction to incoming payments.
-
-- **RavenDB-Powered Data Model**  
-  Uses RavenDB’s document-oriented architecture for fast writes, efficient queries, and scalable storage of UTXO state and transaction history.
-
-- **Blockchain Reorganization Safety**  
-  Automatically detects and handles chain reorganizations, reindexing affected data to maintain a consistent and correct view of the blockchain state.
+| Capability | State |
+| --- | --- |
+| Node JSON-RPC connectivity + block-path ingest | ✅ verified on regtest |
+| Radiant ref parsing (`OP_PUSHINPUTREF`/singleton) | ✅ unit-tested |
+| Glyph envelope + CBOR metadata (v1, v2 Style A/B) | ✅ unit-tested |
+| Glyph indexing wired into pipeline + `manage/glyph-ref` API | ✅ verified e2e |
+| Native Radiant P2P transport + handshake | ✅ live handshake with `radiantd` |
+| P2P thin-node Glyph watching | ✅ unit-tested |
+| Transaction signing (Radiant `hashOutputHashes` preimage) | ✅ **node-validated** via `testmempoolaccept` |
 
 ---
 
 ## 🛠 Tech Stack
 
-- **Language:** C# (.NET)
-- **Blockchain:** Bitcoin SV (BSV)
+- **Language:** C# / .NET 9
+- **Blockchain:** Radiant (RXD)
 - **Database:** RavenDB
-- **Realtime Updates:** SignalR WebSockets
+- **Realtime Updates:** SignalR WebSockets; native Radiant P2P (thin-node)
 
 ---
 
 ## Docker Setup
 
-[Docker Hub](https://hub.docker.com/r/dxs/consigliere)
+> **Note on data sources.** Upstream's "managed providers" wizard step uses
+> **JungleBus** (a BSV SaaS with no Radiant equivalent). On Radiant, use a
+> **Radiant node** instead — either the node JSON-RPC/ZMQ path or the **P2P
+> thin-node** path (no node ZMQ required). See *Advanced* below.
 
 ### Run locally (recommended for self-hosting)
 
-The fastest path to a working node on your own machine: one
-compose command, finish the first-run wizard in the browser. No
-domain, no TLS cert, no manual config.
+The fastest path on your own machine: one compose command, then finish the
+first-run wizard in the browser (admin account + RavenDB). No domain, no TLS
+cert. Configure the Radiant data source via the `RadiantNodeApi` / `ZmqClient`
+env vars (or the P2P pool config), not the BSV provider wizard step.
 
-> **No published image yet.** Until a `dxs/consigliere:vX.Y.Z`
-> release is cut, build from source with the local-build overlay
-> (first command below). Once a release exists, drop the overlay
-> and `compose.local.yml` pulls the published image instead
-> (second command).
+> **No published image yet.** Build from source with the local-build overlay
+> (first command below). Once a release image is published, drop the overlay
+> and `compose.local.yml` pulls it instead (second command).
 
 ```bash
-# 1. Get a free JungleBus subscription id from GorillaPool
-#    (https://gorillapool.io) — you'll paste it into the wizard.
-
-# 2. Start the stack (RavenDB + Consigliere).
+# 1. Start the stack (RavenDB + Consigliere-RXD).
 #    NOW (build from source — no published image yet):
 docker compose -f compose.local.yml -f compose.local-build.yml up -d --build
 #    LATER (once a release is published — pull, no build):
 docker compose -f compose.local.yml up -d
 
-# 3. Open the admin UI and complete the first-run wizard:
+# 2. Open the admin UI and create the admin account:
 #    http://localhost:5000
-#    → admin account → providers → block-sync (paste the
-#      JungleBus subscription id) → confirm.
 
-# 4. Add a watched address (Tracked Addresses screen). It starts
-#    indexing live — no restart needed: the block-sync + realtime
-#    ingest tasks watch the provider config and re-bind themselves
-#    when the wizard writes it.
+# 3. Add a watched address (Tracked Addresses screen) or a Glyph ref
+#    (POST /api/admin/manage/glyph-ref). It starts indexing live — no
+#    restart needed: the block-sync + realtime ingest tasks watch the
+#    config and re-bind themselves when it changes.
 ```
 
 Pin a specific release instead of `latest` (post-release path):
@@ -121,24 +130,39 @@ docker compose -f compose.local.yml down -v     # stop + delete data
 > (`docker compose -f compose.yml -f compose.prod.yml --profile
 > prod up -d`) and follow [`docs/runbook.md`](docs/runbook.md).
 
-### Advanced: bring-your-own RavenDB + BSV node (ZMQ)
+### Advanced: bring-your-own RavenDB + Radiant node (ZMQ)
 
-If you run your own RavenDB + a full BSV node and prefer the
-node/ZMQ ingest path over managed providers, run the image
-directly and add watched addresses via the Admin API:
+If you run your own RavenDB + a Radiant node and prefer the node/ZMQ ingest path,
+run the image directly and add watched addresses/refs via the Admin API. (For the
+ZMQ path the node needs `zmqpubrawtx`/`zmqpubrawblock`/`zmqpubhashblock` enabled;
+to avoid that, use the **P2P thin-node** path instead — see below.)
 
 ```bash
 docker run -p 5000:5000 \
   -e "RavenDb__Urls__0=http://ravendb:8080" \
   -e "RavenDb__DbName=Consigliere" \
-  -e "BsvNodeApi__BaseUrl=http://your-node:18332" \
-  -e "BsvNodeApi__User=your_user" \
-  -e "BsvNodeApi__Password=your_password" \
+  -e "Network=Testnet" \
+  -e "RadiantNodeApi__BaseUrl=http://your-node:17443" \
+  -e "RadiantNodeApi__User=your_user" \
+  -e "RadiantNodeApi__Password=your_password" \
   -e "ZmqClient__RawTx2Address=tcp://your-node:28332" \
   -e "ZmqClient__RemovedFromMempoolBlockAddress=tcp://your-node:28332" \
   -e "ZmqClient__DiscardedFromMempoolAddress=tcp://your-node:28332" \
   -e "ZmqClient__HashBlock2Address=tcp://your-node:28332" \
-  dxs/consigliere:latest
+  consigliere-rxd:latest
+```
+
+### P2P thin-node (no node ZMQ required)
+
+Instead of ZMQ, watch the chain over Radiant's native P2P protocol. Enable the
+pool under `Consigliere:Broadcast:P2p` and point it at a Radiant node:
+
+```json
+"Consigliere": { "Broadcast": { "P2p": {
+  "Enabled": true,
+  "Network": "radiant-regtest",          // or radiant-mainnet / radiant-testnet
+  "InitialPeers": ["host.docker.internal:18444"]
+}}}
 ```
 
 Use the Admin API to add addresses/tokens to watch after startup.
@@ -232,19 +256,23 @@ Deep-link SPA routes are expected to work in this mode because the admin bundle 
 
 ## 📦 Manual Setup
 
-> ⚠️ Consigliere was developed by **DXS** for internal operations. External deployment may require adjustments.
+> ⚠️ Upstream Consigliere was developed by **DXS** for internal BSV operations;
+> this is a Radiant fork. External deployment may require adjustments.
 
 ```bash
 # Clone the repository
-git clone https://github.com/dxsapp/dxs-consigliere.git
-cd dxs-consigliere/src/Dxs.Consigliere
+git clone https://github.com/TheArtofSatoshi/rxd-consigliere.git
+cd rxd-consigliere/src/Dxs.Consigliere
 ```
 
 ## Configuration
 
 ### Using appsettings.json
 
-Create `src/Dxs.Consigliere/appsettings.Development.json` for local development:
+Create `src/Dxs.Consigliere/appsettings.Development.json` for local development.
+Point `RadiantNodeApi` at a Radiant node (default RPC ports: mainnet 7332,
+testnet 27332, regtest 17443 — use `Network: "Testnet"` for regtest, which shares
+testnet address/key params):
 
 ```json
 {
@@ -259,45 +287,53 @@ Create `src/Dxs.Consigliere/appsettings.Development.json` for local development:
     "DiscardedFromMempoolAddress": "tcp://localhost:28332",
     "HashBlock2Address": "tcp://localhost:28332"
   },
-  "BsvNodeApi": {
-    "BaseUrl": "http://localhost:18332",
+  "RadiantNodeApi": {
+    "BaseUrl": "http://localhost:17443",
     "User": "your_rpc_user",
     "Password": "your_rpc_password"
   },
   "TransactionFilter": {
     "Addresses": [],
-    "Tokens": []
+    "GlyphRefs": []
   }
 }
 ```
 
 **Configuration Notes**:
-- `Network`: Set to `"Mainnet"` or `"Testnet"` to match your BSV node
+- `Network`: `"Mainnet"` or `"Testnet"` (use `Testnet` for regtest — it shares testnet params)
 - RavenDB: `8080` (default)
-- BSV Node RPC: `8332` (mainnet) or `18332` (testnet)
-- BSV Node ZMQ: `28332` (default)
+- Radiant Node RPC: `7332` (mainnet) / `27332` (testnet) / `17443` (regtest)
+- Radiant Node ZMQ: `28332` (whatever you set `-zmqpub*` to)
+- Radiant Node P2P: `7333` (mainnet) / `27333` (testnet) / `18444` (regtest)
 
-### Managing Watched Addresses & Tokens
+### Managing Watched Addresses & Glyph Tokens
 
-Use the **Admin API** to dynamically add/remove addresses and tokens (recommended):
+Use the **Admin API** to dynamically add addresses and Glyph token refs to watch:
 
 ```bash
-# Add an address to watch
+# Add a Radiant (RXD) address to watch
 POST /api/admin/manage/address
 {
-  "address": "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa",
-  "name": "Genesis Address"
+  "address": "1YourRadiantP2PKHAddress...",
+  "name": "Exchange hot wallet"
 }
 
-# Add a STAS token to watch
-POST /api/admin/manage/stas-token
+# Add a Radiant Glyph token to watch, by its induction ref
+# (compact outpoint hex: 32-byte txid LE + 4-byte vout LE = 72 hex chars)
+POST /api/admin/manage/glyph-ref
 {
-  "tokenId": "542a56ec7a307fd68bf925d8f4d525ca61e868ad",
-  "symbol": "USDT-TON"
+  "glyphRef": "<72-hex-char-ref>",
+  "name": "MyToken"
 }
 ```
 
-These settings persist in RavenDB and survive restarts. Alternatively, you can bootstrap addresses/tokens in `TransactionFilter` config, but the API approach is more flexible.
+A watched ref makes the indexer surface every transaction whose output carries
+that ref — over both the node block/ZMQ path and the P2P thin-node path. These
+settings persist in RavenDB and survive restarts; you can also bootstrap them via
+the `TransactionFilter` config (`Addresses` / `GlyphRefs`).
+
+> The upstream `manage/stas-token` endpoint remains for BSV-STAS compatibility
+> but is not used on Radiant — use `manage/glyph-ref` instead.
 
 ## Run
 
@@ -397,7 +433,12 @@ disaster recovery are documented in
 operator-facing source of truth — read it instead of the
 source code for any production-operations question.
 
-## Author
+## Credits
 
-- Author: [Oleg Panagushin](https://github.com/panagushin)  
-  CTO / System Architect — Crypto & FinTech
+Upstream **Consigliere** (the BSV indexer + SDK this is forked from) was created by
+[Oleg Panagushin](https://github.com/panagushin) / DXS — CTO / System Architect,
+Crypto & FinTech — and is MIT-licensed.
+
+This **Consigliere-RXD** fork adapts it to the Radiant (RXD) blockchain and the
+Glyph token protocol; see [`RADIANT_ADAPTATION.md`](./RADIANT_ADAPTATION.md) for
+the full record of what changed and how it was verified.

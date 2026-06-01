@@ -158,13 +158,19 @@ public sealed class BsvP2pHostedService : IHostedService, IAsyncDisposable
 
     private async Task StartPoolAsync(CancellationToken cancellationToken)
     {
-        if (!string.Equals(_config.Network, "mainnet", StringComparison.OrdinalIgnoreCase))
+        // Resolve the configured network: BSV "mainnet" plus the Radiant
+        // variants (radiant-mainnet / radiant-testnet / radiant-regtest, and the
+        // bare testnet/regtest aliases). Radiant mainnet shares BSV's wire magic
+        // but uses a different P2P port (7333); test nets differ in both.
+        var network = P2pNetwork.Resolve(_config.Network);
+        if (network is null)
         {
-            _logger.LogError("BSV P2P enabled but network '{Network}' is not supported (mainnet only). Pool not started.", _config.Network);
+            _logger.LogError(
+                "BSV/Radiant P2P enabled but network '{Network}' is not recognized "
+                + "(expected: mainnet | radiant-mainnet | radiant-testnet | radiant-regtest). Pool not started.",
+                _config.Network);
             return;
         }
-
-        var network = P2pNetwork.Mainnet;
 
         _store = new InMemoryPeerStore();
         var discovery = new PeerDiscovery(network, _store, _loggerFactory.CreateLogger<PeerDiscovery>());

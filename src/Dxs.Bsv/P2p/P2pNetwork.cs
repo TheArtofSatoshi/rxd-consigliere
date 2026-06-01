@@ -44,6 +44,69 @@ public sealed class P2pNetwork
             "193.145.14.195:8333",
         });
 
+    // ---------------------------------------------------------------------
+    // Radiant (RXD) networks. Magic + ports transcribed from
+    // Radiant-Core/src/chainparams*.cpp (and radiantjs/lib/networks.js):
+    //   netMagic   mainnet e3 e1 f3 e8 | testnet f4 e5 f3 f4 | regtest da b5 bf fa
+    //   P2P port   mainnet 7333        | testnet 27333 (v3)  | regtest 18444
+    // The uint32 is byte-swapped from the wire bytes so WriteUInt32LE emits them
+    // in order (same convention as the BSV Mainnet constant above):
+    //   WriteUInt32LE(0xE8F3E1E3) -> e3 e1 f3 e8   (mainnet — identical to BSV)
+    //   WriteUInt32LE(0xF4F3E5F4) -> f4 e5 f3 f4   (testnet)
+    //   WriteUInt32LE(0xFABFB5DA) -> da b5 bf fa   (regtest)
+    // Radiant has no public P2P DNS seeds wired here for test nets; operators
+    // supply InitialPeers (e.g. a local/LAN node) for thin-node connectivity.
+
+    /// <summary>Radiant mainnet. Wire magic <c>e3 e1 f3 e8</c>, P2P port 7333.</summary>
+    public static P2pNetwork RadiantMainnet { get; } = new(
+        name: "radiant-mainnet",
+        magic: 0xE8F3E1E3u,
+        defaultPort: 7333,
+        dnsSeeds: new[]
+        {
+            "seed.radiantcore.org",
+            "node.radiantblockchain.org",
+            "node.radiantone.org",
+        },
+        fallbackSeeds: System.Array.Empty<string>());
+
+    /// <summary>Radiant testnet (v3). Wire magic <c>f4 e5 f3 f4</c>, P2P port 27333.</summary>
+    public static P2pNetwork RadiantTestnet { get; } = new(
+        name: "radiant-testnet",
+        magic: 0xF4F3E5F4u,
+        defaultPort: 27333,
+        dnsSeeds: new[]
+        {
+            "testnet.radiantblockchain.org",
+            "testnet.radiantcore.org",
+        },
+        fallbackSeeds: System.Array.Empty<string>());
+
+    /// <summary>Radiant regtest. Wire magic <c>da b5 bf fa</c>, P2P port 18444.
+    /// No seeds — supply a local node via <c>InitialPeers</c>.</summary>
+    public static P2pNetwork RadiantRegtest { get; } = new(
+        name: "radiant-regtest",
+        magic: 0xFABFB5DAu,
+        defaultPort: 18444,
+        dnsSeeds: System.Array.Empty<string>(),
+        fallbackSeeds: System.Array.Empty<string>());
+
+    /// <summary>
+    /// Resolve a configured network name to a <see cref="P2pNetwork"/>. Accepts
+    /// the BSV <c>"mainnet"</c> plus Radiant <c>"radiant-mainnet"</c> /
+    /// <c>"radiant-testnet"</c> / <c>"radiant-regtest"</c> (and the bare
+    /// <c>"testnet"</c>/<c>"regtest"</c> aliases, treated as Radiant). Returns
+    /// null for an unknown name so the caller can log + refuse to start.
+    /// </summary>
+    public static P2pNetwork? Resolve(string name) => (name ?? string.Empty).ToLowerInvariant() switch
+    {
+        "mainnet" or "bsv-mainnet" => Mainnet,
+        "radiant-mainnet" or "rxd-mainnet" => RadiantMainnet,
+        "radiant-testnet" or "rxd-testnet" or "testnet" => RadiantTestnet,
+        "radiant-regtest" or "rxd-regtest" or "regtest" => RadiantRegtest,
+        _ => null,
+    };
+
     private P2pNetwork(string name, uint magic, ushort defaultPort, string[] dnsSeeds, string[] fallbackSeeds)
     {
         Name = name;

@@ -404,3 +404,36 @@ keys/secp256k1/Base58 — all chain rules are DXS's own code). The app layer
   `RXinDexer/electrumx/server/glyph_index.py`.
 - Tx builders: `Photonic-Wallet/packages/lib/src/{mint,transfer,token,script}.ts`.
 - Chain constants: `radiantjs/lib/networks.js`, `Radiant-Core/src/chainparams*.cpp`.
+
+## P2P thin-node Glyph watching (done, on radiant/vnext)
+
+vnext ships a native Bitcoin-P2P observer (`src/Dxs.Bsv/P2p/`) + thin-node mode:
+it watches mempool/headers directly over the P2P protocol, so an operator does
+NOT need a full node with ZMQ enabled. This wires Radiant Glyph token watching
+into that path — the analog of the existing STAS/DSTAS token watching — so the
+thin-node tracks tokens by induction ref, not just addresses.
+
+Pipeline (parse → match → ingest → persist):
+- `P2p/Observer/TxScriptParser.TryParseGlyphRefs(script)` — extract a locking
+  script's induction refs (OP_PUSHINPUTREF 0xd0 / singleton 0xd8) as compact
+  outpoint hex, via `RadiantScriptScanner`. Total, throw-free.
+- `P2p/Observer/ParsedTx.OutputGlyphRefs` — optional/defaulted field (existing
+  4-arg call sites + tests keep compiling).
+- `P2p/Observer/WatchlistMatcher` — `_glyphRefs` set + `AddGlyphRef`/
+  `RemoveGlyphRef`/`IsWatchedGlyphRef`/`HasAnyGlyphRefs`/`WatchedGlyphRefCount`;
+  `Match()` resolves address/token/glyph into a single-hit record or composite
+  `Both`. New `MatchResult.GlyphHit`; `Both` gained a `GlyphRefs` list.
+- `Services/P2p/ObservedTxIngestor` — extracts output glyph refs into `ParsedTx`.
+- `Services/P2p/RavenWatchlistLoader` — bulk-load + Changes-API live add/remove +
+  `TrackGlyphRefNow` for the `WatchingGlyphRefs` collection, seeded at init
+  (mirrors the WatchingTokens path).
+
+Tests: `tests/Dxs.Bsv.Tests/P2p/Observer/WatchlistMatcherGlyphTests.cs` +
+`TxScriptParserGlyphTests.cs`. The full P2P observer suite (vnext's existing
+tests + new) runs **97 passing** — confirming the shared `ParsedTx` /
+`MatchResult` / `Both` changes are backward-compatible. Full image
+`consigliere-vnext:radiant-p2p` builds clean (admin-ui + .NET, 0 errors).
+
+**Net effect:** the M1 ZMQ blocker is now bypassable — onboard a Glyph ref via
+`POST /api/admin/manage/glyph-ref`, and thin-node mode will surface mempool +
+block transactions carrying that ref over P2P, with no node ZMQ/reconfiguration.

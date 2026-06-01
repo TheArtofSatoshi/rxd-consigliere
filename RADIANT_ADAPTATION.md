@@ -437,3 +437,47 @@ tests + new) runs **97 passing** — confirming the shared `ParsedTx` /
 **Net effect:** the M1 ZMQ blocker is now bypassable — onboard a Glyph ref via
 `POST /api/admin/manage/glyph-ref`, and thin-node mode will surface mempool +
 block transactions carrying that ref over P2P, with no node ZMQ/reconfiguration.
+
+## P2P transport on Radiant — live handshake proven (done)
+
+vnext's P2P stack shipped BSV-mainnet-only: `P2pNetwork.Mainnet` (magic
+`e3e1f3e8`, port 8333) and `BsvP2pHostedService.StartPoolAsync` hard-rejected any
+non-mainnet network. So the thin-node observer + the Glyph watching wired into it
+could never actually peer a Radiant node. Fixed:
+
+- `src/Dxs.Bsv/P2p/P2pNetwork.cs` — added `RadiantMainnet` / `RadiantTestnet` /
+  `RadiantRegtest` with netMagic + P2P ports from `Radiant-Core/src/chainparams*.cpp`:
+  mainnet `e3 e1 f3 e8` / 7333 (magic identical to BSV → frame codec unchanged),
+  testnet `f4 e5 f3 f4` / 27333, regtest `da b5 bf fa` / 18444. Plus
+  `Resolve(name)` mapping config strings (incl. bare `testnet`/`regtest` aliases)
+  to a network, null on unknown.
+- `src/Dxs.Consigliere/Services/P2p/BsvP2pHostedService.cs` — `StartPoolAsync`
+  now resolves via `P2pNetwork.Resolve(_config.Network)` instead of the
+  mainnet-only guard. Set `Consigliere:Broadcast:P2p` `Network: "radiant-regtest"`
+  + `Enabled: true` + an `InitialPeers` entry (the node's `host:18444`) to start
+  a Radiant pool.
+
+**VERIFIED LIVE against the regtest node:**
+`tests/Dxs.Bsv.Tests/P2p/LiveRadiantP2pHandshakeTests.cs` (opt-in, gated on
+`RADIANT_P2P_ENDPOINT`) drives the real `PeerSession.ConnectAsync` to
+`radiantd v3.0.0` on P2P 18444 with `radiant-regtest` magic and reaches
+`PeerSessionState.Ready`, parsing the peer's version — passed. The node side
+showed `/Radiant Core:3.0.0(EB256.0)/`. Unit `RadiantP2pNetworkTests` asserts
+the exact on-wire magic bytes per network (+ FrameCodec round-trip). 109 Dxs.Bsv
+P2p/Glyph tests pass; full image builds clean.
+
+Run the live handshake:
+```bash
+docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -e NUGET_PACKAGES=/tmp/nuget \
+  -e RADIANT_P2P_ENDPOINT=host.docker.internal:18444 \
+  -e RADIANT_P2P_NETWORK=radiant-regtest \
+  -v "$PWD":/work -w /work mcr.microsoft.com/dotnet/sdk:9.0 \
+  dotnet test tests/Dxs.Bsv.Tests/Dxs.Bsv.Tests.csproj \
+    --filter FullyQualifiedName~LiveRadiantP2pHandshakeTests
+```
+
+**End-to-end thin-node path now exists:** Radiant P2P handshake ✓ →
+mempool/block tx observed over P2P → `TxScriptParser.TryParseGlyphRefs` →
+`WatchlistMatcher` (Glyph ref) → `ObservedTxIngestor` → RavenDB + journal.
+Remaining to demonstrate fully live: enable the P2P pool in config against the
+node, onboard a Glyph ref, broadcast a token tx, observe the match end-to-end.

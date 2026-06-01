@@ -25,9 +25,22 @@ namespace Dxs.Bsv.P2p.Observer;
 /// One per token output (lowercase hex). Empty list when no
 /// token outputs.
 /// </para>
+/// <para>
+/// <see cref="OutputGlyphRefs"/> — every Radiant Glyph induction ref
+/// (compact outpoint hex) carried by an output's locking script, via S1
+/// <see cref="TxScriptParser.TryParseGlyphRefs"/>. The Radiant token analog of
+/// <see cref="OutputTokenIds"/>. Optional/defaulted so existing call sites that
+/// predate Radiant Glyph support keep compiling; defaults to an empty list.
+/// </para>
 /// </summary>
 public sealed record ParsedTx(
     string TxId,
     IReadOnlyList<byte[]> OutputHash160s,
     IReadOnlyList<byte[]> InputPayerHash160s,
-    IReadOnlyList<string> OutputTokenIds);
+    IReadOnlyList<string> OutputTokenIds,
+    IReadOnlyList<string>? OutputGlyphRefs = null)
+{
+    /// <summary>Glyph refs carried by outputs; never null (empty when none).</summary>
+    public IReadOnlyList<string> OutputGlyphRefs { get; init; } =
+        OutputGlyphRefs ?? System.Array.Empty<string>();
+}

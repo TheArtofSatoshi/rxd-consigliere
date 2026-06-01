@@ -43,6 +43,11 @@ public sealed class WatchlistMatcher
 
     private readonly ConcurrentDictionary<string, byte> _tokenIds = new(StringComparer.Ordinal);
 
+    // Radiant Glyph token refs (compact outpoint hex, lowercase). Like tokens,
+    // a small set relative to addresses — direct hash-set membership, no prefix
+    // index. Matched against ParsedTx.OutputGlyphRefs.
+    private readonly ConcurrentDictionary<string, byte> _glyphRefs = new(StringComparer.Ordinal);
+
     /// <summary>True once <see cref="MarkLoaded"/> has been called.
     /// Consumers wait on this before processing observed tx, so the
     /// matcher is warm with the initial Raven snapshot.</summary>
@@ -53,6 +58,12 @@ public sealed class WatchlistMatcher
     /// every tx when this is true (per program Core Rule §3 token
     /// matching note).</summary>
     public bool HasAnyTokens => !_tokenIds.IsEmpty;
+
+    /// <summary>True when at least one Radiant Glyph ref is registered.
+    /// Like <see cref="HasAnyTokens"/>, the mempool watcher widens parsing
+    /// scope to every tx when this is true (token-bearing outputs aren't
+    /// P2PKH, so the cheap P2PKH-only path would miss them).</summary>
+    public bool HasAnyGlyphRefs => !_glyphRefs.IsEmpty;
 
     public int WatchedAddressCount
     {
@@ -65,6 +76,8 @@ public sealed class WatchlistMatcher
     }
 
     public int WatchedTokenCount => _tokenIds.Count;
+
+    public int WatchedGlyphRefCount => _glyphRefs.Count;
 
     /// <summary>
     /// Mark the matcher as loaded — called by
@@ -111,6 +124,21 @@ public sealed class WatchlistMatcher
             _tokenIds.TryRemove(tokenId, out _);
     }
 
+    /// <summary>Add a watched Radiant Glyph ref (compact outpoint hex). Idempotent.
+    /// Normalised to lowercase to match ParsedTx.OutputGlyphRefs.</summary>
+    public void AddGlyphRef(string glyphRef)
+    {
+        if (!string.IsNullOrEmpty(glyphRef))
+            _glyphRefs.TryAdd(glyphRef.ToLowerInvariant(), 0);
+    }
+
+    /// <summary>Remove a watched Glyph ref. Idempotent.</summary>
+    public void RemoveGlyphRef(string glyphRef)
+    {
+        if (!string.IsNullOrEmpty(glyphRef))
+            _glyphRefs.TryRemove(glyphRef.ToLowerInvariant(), out _);
+    }
+
     /// <summary>
     /// Decide whether <paramref name="parsed"/> touches any watched
     /// address (output P2PKH or input P2PKH payer) or any watched
@@ -123,6 +151,7 @@ public sealed class WatchlistMatcher
 
         List<byte[]>? addressHits = null;
         List<string>? tokenHits = null;
+        List<string>? glyphHits = null;
 
         // Address matches against P2PKH outputs.
         for (var i = 0; i < parsed.OutputHash160s.Count; i++)
@@ -142,14 +171,33 @@ public sealed class WatchlistMatcher
             var t = parsed.OutputTokenIds[i];
             if (_tokenIds.ContainsKey(t)) (tokenHits ??= new List<string>()).Add(t);
         }
-
-        return (addressHits, tokenHits) switch
+        // Radiant Glyph matches against output induction refs.
+        for (var i = 0; i < parsed.OutputGlyphRefs.Count; i++)
         {
-            (null, null) => MatchResult.None.Instance,
-            (not null, null) => new MatchResult.AddressHit(addressHits),
-            (null, not null) => new MatchResult.TokenHit(tokenHits),
-            (not null, not null) => new MatchResult.Both(addressHits, tokenHits),
-        };
+            var r = parsed.OutputGlyphRefs[i];
+            if (_glyphRefs.ContainsKey(r)) (glyphHits ??= new List<string>()).Add(r);
+        }
+
+        var categories =
+            (addressHits is not null ? 1 : 0) +
+            (tokenHits is not null ? 1 : 0) +
+            (glyphHits is not null ? 1 : 0);
+
+        if (categories == 0) return MatchResult.None.Instance;
+
+        // Exactly one category → the dedicated single-hit record.
+        if (categories == 1)
+        {
+            if (addressHits is not null) return new MatchResult.AddressHit(addressHits);
+            if (tokenHits is not null) return new MatchResult.TokenHit(tokenHits);
+            return new MatchResult.GlyphHit(glyphHits!);
+        }
+
+        // More than one category → composite (empty lists for non-hits).
+        return new MatchResult.Both(
+            (IReadOnlyList<byte[]>?)addressHits ?? Array.Empty<byte[]>(),
+            (IReadOnlyList<string>?)tokenHits ?? Array.Empty<string>(),
+            (IReadOnlyList<string>?)glyphHits ?? Array.Empty<string>());
     }
 
     /// <summary>
@@ -168,6 +216,10 @@ public sealed class WatchlistMatcher
     /// <summary>True if the token id is watched.</summary>
     public bool IsWatchedToken(string tokenId) =>
         !string.IsNullOrEmpty(tokenId) && _tokenIds.ContainsKey(tokenId);
+
+    /// <summary>True if the Radiant Glyph ref (compact outpoint hex) is watched.</summary>
+    public bool IsWatchedGlyphRef(string glyphRef) =>
+        !string.IsNullOrEmpty(glyphRef) && _glyphRefs.ContainsKey(glyphRef.ToLowerInvariant());
 
     private static ulong ReadPrefix(ReadOnlySpan<byte> hash160) =>
         BinaryPrimitives.ReadUInt64LittleEndian(hash160[..8]);

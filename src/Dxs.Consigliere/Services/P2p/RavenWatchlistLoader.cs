@@ -50,6 +50,7 @@ public sealed class RavenWatchlistLoader : IAsyncDisposable
 {
     private const string AddressIdPrefix = "address/";
     private const string TokenIdPrefix = "token/";
+    private const string GlyphRefIdPrefix = "glyphRef/";
 
     private readonly IDocumentStore _store;
     private readonly WatchlistMatcher _matcher;
@@ -89,12 +90,14 @@ public sealed class RavenWatchlistLoader : IAsyncDisposable
 
         await BulkLoadAddressesAsync(initLinked.Token);
         await BulkLoadTokensAsync(initLinked.Token);
+        await BulkLoadGlyphRefsAsync(initLinked.Token);
 
         _matcher.MarkLoaded();
         _logger.LogInformation(
-            "RavenWatchlistLoader initial load complete: {AddrCount} addresses, {TokenCount} tokens",
+            "RavenWatchlistLoader initial load complete: {AddrCount} addresses, {TokenCount} tokens, {GlyphRefCount} glyph refs",
             _matcher.WatchedAddressCount,
-            _matcher.WatchedTokenCount);
+            _matcher.WatchedTokenCount,
+            _matcher.WatchedGlyphRefCount);
 
         _subscriptionLoop = Task.Run(() => SubscriptionLoopAsync(_cts.Token), CancellationToken.None);
     }
@@ -121,10 +124,22 @@ public sealed class RavenWatchlistLoader : IAsyncDisposable
         }
     }
 
+    private async Task BulkLoadGlyphRefsAsync(CancellationToken ct)
+    {
+        using var session = _store.OpenAsyncSession();
+        var query = session.Advanced.AsyncRawQuery<WatchingGlyphRef>("from WatchingGlyphRefs");
+        await using var stream = await session.Advanced.StreamAsync(query, ct);
+        while (await stream.MoveNextAsync())
+        {
+            ApplyGlyphRefAdd(stream.Current.Document);
+        }
+    }
+
     private async Task SubscriptionLoopAsync(CancellationToken ct)
     {
         var addrCollection = _store.Conventions.FindCollectionName(typeof(WatchingAddress));
         var tokCollection = _store.Conventions.FindCollectionName(typeof(WatchingToken));
+        var glyphRefCollection = _store.Conventions.FindCollectionName(typeof(WatchingGlyphRef));
 
         while (!ct.IsCancellationRequested)
         {
@@ -139,6 +154,10 @@ public sealed class RavenWatchlistLoader : IAsyncDisposable
                     .ForDocumentsInCollection(tokCollection)
                     .Where(c => c.Type is DocumentChangeTypes.Put or DocumentChangeTypes.Delete)
                     .Subscribe(HandleTokenChange);
+                using var glyphRefSub = changes
+                    .ForDocumentsInCollection(glyphRefCollection)
+                    .Where(c => c.Type is DocumentChangeTypes.Put or DocumentChangeTypes.Delete)
+                    .Subscribe(HandleGlyphRefChange);
 
                 // Keep both subscriptions alive until cancellation.
                 await Task.Delay(Timeout.InfiniteTimeSpan, ct);
@@ -217,6 +236,37 @@ public sealed class RavenWatchlistLoader : IAsyncDisposable
         }
     }
 
+    private void HandleGlyphRefChange(DocumentChange change)
+    {
+        try
+        {
+            if (change.Type == DocumentChangeTypes.Delete)
+            {
+                if (TryExtractGlyphRef(change.Id, out var glyphRef))
+                    _matcher.RemoveGlyphRef(glyphRef);
+                return;
+            }
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    using var session = _store.OpenAsyncSession();
+                    var doc = await session.LoadAsync<WatchingGlyphRef>(change.Id);
+                    if (doc is not null) ApplyGlyphRefAdd(doc);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to load WatchingGlyphRef {Id} on Put", change.Id);
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "RavenWatchlistLoader: error handling WatchingGlyphRef change {Id}", change.Id);
+        }
+    }
+
     /// <summary>
     /// Synchronously add an address to the in-memory matcher. Called by the
     /// tracking flow so a freshly-tracked address matches mempool tx
@@ -233,6 +283,10 @@ public sealed class RavenWatchlistLoader : IAsyncDisposable
     /// <summary>Synchronously add a token to the matcher — see <see cref="TrackAddressNow"/>.</summary>
     public void TrackTokenNow(string tokenId)
         => ApplyTokenAdd(new WatchingToken { TokenId = tokenId });
+
+    /// <summary>Synchronously add a Radiant Glyph ref to the matcher — see <see cref="TrackAddressNow"/>.</summary>
+    public void TrackGlyphRefNow(string glyphRef)
+        => ApplyGlyphRefAdd(new WatchingGlyphRef { GlyphRef = glyphRef });
 
     private void ApplyAddressAdd(WatchingAddress doc)
     {
@@ -265,6 +319,12 @@ public sealed class RavenWatchlistLoader : IAsyncDisposable
     {
         if (doc is null || string.IsNullOrEmpty(doc.TokenId)) return;
         _matcher.AddToken(doc.TokenId);
+    }
+
+    private void ApplyGlyphRefAdd(WatchingGlyphRef doc)
+    {
+        if (doc is null || string.IsNullOrEmpty(doc.GlyphRef)) return;
+        _matcher.AddGlyphRef(doc.GlyphRef);
     }
 
     /// <summary>
@@ -301,6 +361,19 @@ public sealed class RavenWatchlistLoader : IAsyncDisposable
         }
         tokenId = rest[..slashIdx];
         return !string.IsNullOrEmpty(tokenId);
+    }
+
+    /// <summary>
+    /// Parse <c>"glyphRef/{ref}"</c> form back into the bare Radiant Glyph ref
+    /// (compact outpoint hex). Mirrors <see cref="TryExtractAddress"/>.
+    /// </summary>
+    public static bool TryExtractGlyphRef(string docId, out string glyphRef)
+    {
+        glyphRef = string.Empty;
+        if (string.IsNullOrEmpty(docId)) return false;
+        if (!docId.StartsWith(GlyphRefIdPrefix, StringComparison.Ordinal)) return false;
+        glyphRef = docId[GlyphRefIdPrefix.Length..];
+        return !string.IsNullOrEmpty(glyphRef);
     }
 
     public async ValueTask DisposeAsync()

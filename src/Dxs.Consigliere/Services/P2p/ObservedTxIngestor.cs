@@ -110,6 +110,7 @@ public sealed class ObservedTxIngestor(
         // Input.Address shortcuts are not used here.
         var outputHashes = new List<byte[]>(tx.Outputs.Count);
         var outputTokens = new List<string>();
+        var outputGlyphRefs = new List<string>();
         for (var i = 0; i < tx.Outputs.Count; i++)
         {
             var script = tx.Outputs[i].ScriptPubKey.Materialize(rawBytes);
@@ -117,6 +118,13 @@ public sealed class ObservedTxIngestor(
             {
                 outputHashes.Add(h.ToArray());
                 continue;
+            }
+            // Radiant Glyph: a token output carries induction refs (and is not
+            // P2PKH). Extract them so the thin-node matcher can watch tokens.
+            if (TxScriptParser.TryParseGlyphRefs(script, out var refs))
+            {
+                for (var r = 0; r < refs.Count; r++)
+                    outputGlyphRefs.Add(refs[r]);
             }
             if (TxScriptParser.TryParseTokenId(script, network.Network, out var tokenId)
                 && !string.IsNullOrEmpty(tokenId))
@@ -133,7 +141,7 @@ public sealed class ObservedTxIngestor(
             if (TxScriptParser.TryParseP2pkhInputPubkey(scriptSig, out var h) && h is not null)
                 inputHashes.Add(h);
         }
-        return new ParsedTx(txid, outputHashes, inputHashes, outputTokens);
+        return new ParsedTx(txid, outputHashes, inputHashes, outputTokens, outputGlyphRefs);
     }
 }
 

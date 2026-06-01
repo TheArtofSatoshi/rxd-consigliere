@@ -1,5 +1,6 @@
 #nullable enable
 using System;
+using System.Collections.Generic;
 
 using Dxs.Bsv.Script;
 using Dxs.Bsv.Script.Read;
@@ -138,6 +139,38 @@ public static class TxScriptParser
             // LockingScriptReader is permissive on malformed scripts
             // but we wrap defensively — S1 promise is "no exception
             // bubbles out of this class".
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Extract the Radiant Glyph induction refs a locking script carries
+    /// (OP_PUSHINPUTREF 0xd0 / OP_PUSHINPUTREFSINGLETON 0xd8), each as a compact
+    /// outpoint hex (32-byte txid LE + 4-byte vout LE = 72 hex chars). Returns
+    /// false when the script carries no ref. Total — never throws.
+    ///
+    /// This is the Radiant analog of <see cref="TryParseTokenId"/>: on Radiant a
+    /// token output is identified by a consensus-enforced ref in its scriptPubKey
+    /// (no Back-to-Genesis), so the thin-node matcher watches refs the same way
+    /// the full-node path does (see <c>GlyphOutputInfo</c> / <c>RadiantScriptScanner</c>).
+    /// </summary>
+    public static bool TryParseGlyphRefs(ReadOnlySpan<byte> script, out IReadOnlyList<string> glyphRefs)
+    {
+        glyphRefs = System.Array.Empty<string>();
+        if (script.IsEmpty) return false;
+        try
+        {
+            var refs = Dxs.Bsv.Tokens.Glyph.RadiantScriptScanner.ExtractRefs(script);
+            if (refs.Count == 0) return false;
+
+            var hexes = new string[refs.Count];
+            for (var i = 0; i < refs.Count; i++)
+                hexes[i] = refs[i].OutpointHex;
+            glyphRefs = hexes;
+            return true;
+        }
+        catch
+        {
             return false;
         }
     }

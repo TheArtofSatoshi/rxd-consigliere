@@ -47,7 +47,9 @@ also **builds and signs** consensus-valid Radiant transactions for the outbound
 
 The full engineering record — every Radiant-specific change, the file map, and
 how each layer was verified against a live node — is in
-[`RADIANT_ADAPTATION.md`](./RADIANT_ADAPTATION.md).
+[`RADIANT_ADAPTATION.md`](./RADIANT_ADAPTATION.md). Operations guidance (reorg
+safety, mainnet readiness, throughput, observability, and **when to run
+Consigliere-RXD vs. RXinDexer**) is in [`docs/RADIANT_OPS.md`](./docs/RADIANT_OPS.md).
 
 ## 🚦 Status
 

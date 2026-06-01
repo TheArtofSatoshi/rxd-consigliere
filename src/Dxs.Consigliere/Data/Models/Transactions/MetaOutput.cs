@@ -1,8 +1,11 @@
+using System.Collections.Generic;
+
 using Dxs.Bsv;
 using Dxs.Bsv.Models;
 using Dxs.Bsv.Script;
 using Dxs.Bsv.Script.Read;
 using Dxs.Bsv.Tokens.Dstas.Parsing;
+using Dxs.Bsv.Tokens.Glyph;
 
 using Dxs.Consigliere.Data.Transactions.Dstas;
 
@@ -45,6 +48,18 @@ public class MetaOutput
     public string[] DstasOptionalData { get; set; }
     public string DstasOptionalDataFingerprint { get; set; }
 
+    // --- Radiant Glyph token fields ---------------------------------------
+    // On Radiant a token output is identified by an induction ref in its
+    // scriptPubKey (no Back-to-Genesis). Lets the indexer key per-token balances
+    // by GlyphRef and surface token metadata on the reveal output. Null/empty for
+    // plain (non-Glyph) outputs.
+    public string GlyphRef { get; set; }
+    public List<string> GlyphRefs { get; set; }
+    public bool IsGlyphSingleton { get; set; }
+    public string GlyphTokenType { get; set; }
+    public string GlyphName { get; set; }
+    public string GlyphTicker { get; set; }
+
     public bool Spent { get; set; }
 
     public static string GetId(string txId, int vout) => $"{txId}:{vout}";
@@ -63,6 +78,10 @@ public class MetaOutput
         var scriptPubKey = outPoint.ScriptPubKey.ToHexString();
         var dstas = DstasLockingScriptParser.Parse(reader);
         var dstasMapping = DstasMetaOutputMapping.FromSemantics(dstas);
+
+        // Radiant Glyph: extract induction refs + any embedded token metadata
+        // from the already-materialized scriptPubKey bytes.
+        var glyph = GlyphOutputInfo.FromScript(outPoint.ScriptPubKey);
 
         return new()
         {
@@ -94,6 +113,13 @@ public class MetaOutput
             DstasRequestedScriptHash = dstasMapping.RequestedScriptHash,
             DstasOptionalData = dstasMapping.OptionalData,
             DstasOptionalDataFingerprint = dstasMapping.OptionalDataFingerprint,
+
+            GlyphRef = glyph.PrimaryRefHex,
+            GlyphRefs = glyph.HasRef ? new List<string>(glyph.RefHexes) : null,
+            IsGlyphSingleton = glyph.IsSingleton,
+            GlyphTokenType = glyph.TokenInfo?.TokenTypeName,
+            GlyphName = glyph.TokenInfo?.Name,
+            GlyphTicker = glyph.TokenInfo?.Ticker,
 
             Spent = false
         };

@@ -85,6 +85,30 @@ public class TransactionStore(
         return result;
     }
 
+    public async Task<List<string>> GetWatchingGlyphRefs()
+    {
+        using var session = store.GetSession();
+
+        var result = (config.Value.GlyphRefs ?? [])
+            .Where(r => !string.IsNullOrWhiteSpace(r))
+            .Select(r => r.ToLowerInvariant())
+            .ToList();
+
+        var query = session.Query<WatchingGlyphRef>()
+            .Select(x => x.GlyphRef)
+            .Distinct();
+
+        await using var stream = await session.Advanced.StreamAsync(query);
+
+        while (await stream.MoveNextAsync())
+        {
+            if (!string.IsNullOrWhiteSpace(stream.Current.Document))
+                result.Add(stream.Current.Document.ToLowerInvariant());
+        }
+
+        return result;
+    }
+
     public async Task<TransactionProcessStatus> SaveTransaction(
         Transaction transaction,
         long timestamp,

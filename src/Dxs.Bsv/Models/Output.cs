@@ -4,12 +4,14 @@ using Dxs.Bsv.Protocol;
 using Dxs.Bsv.Script;
 using Dxs.Bsv.Script.Build;
 using Dxs.Bsv.Script.Read;
+using Dxs.Bsv.Tokens.Glyph;
 
 namespace Dxs.Bsv.Models;
 
 public class Output
 {
     private IReadOnlyList<ScriptBuildToken> _scriptTokens;
+    private GlyphOutputInfo _glyph;
 
     public ulong Satoshis { get; set; }
 
@@ -35,6 +37,14 @@ public class Output
 
         return _scriptTokens;
     }
+
+    /// <summary>
+    /// The Glyph view of this output's locking script (induction refs + any
+    /// embedded envelope/token metadata). Computed lazily from the script bytes
+    /// and cached. Returns an empty instance for non-Glyph outputs (e.g. P2PKH).
+    /// </summary>
+    public GlyphOutputInfo GetGlyph(Transaction transaction)
+        => _glyph ??= GlyphOutputInfo.FromScript(GetScriptBytes(transaction));
 
     public static Output Parse(BitcoinStreamReader bitcoinStreamReader, int txStartPosition, int length, ulong value, ulong idx, Network network)
     {

@@ -63,8 +63,15 @@ public class RpcGetBlockHeader
     [JsonPropertyName("merkleroot")]
     public string MerkleRoot { get; set; }
 
-    [JsonPropertyName("num_tx")]
+    // Radiant / Bitcoin-Core return this field as "nTx" (BSV used "num_tx").
+    // Accept "nTx" for deserialization and keep "num_tx" working via a setter
+    // alias, so the expected tx-count populates and the "count doesn't match"
+    // warning stops firing on Radiant.
+    [JsonPropertyName("nTx")]
     public int TransactionsCount { get; set; }
+
+    [JsonPropertyName("num_tx")]
+    public int TransactionsCountLegacy { set => TransactionsCount = value; }
 
     /// <summary>
     /// The block time in seconds since epoch (Jan 1 1970 GMT)

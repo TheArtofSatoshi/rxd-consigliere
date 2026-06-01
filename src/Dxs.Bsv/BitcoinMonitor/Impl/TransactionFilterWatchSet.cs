@@ -12,15 +12,36 @@ internal sealed class TransactionFilterWatchSet
     private readonly ConcurrentDictionary<string, Address> _watchingAddresses = new();
     private readonly ConcurrentDictionary<string, TokenId> _watchingTokens = new();
     private readonly ConcurrentDictionary<string, Address> _watchingTokensRedeemAddresses = new();
+    // Radiant Glyph: watch tokens by induction ref (compact outpoint hex).
+    private readonly ConcurrentDictionary<string, byte> _watchingGlyphRefs = new();
 
     public int WatchingAddressesCount => _watchingAddresses.Count;
     public int WatchingTokensCount => _watchingTokens.Count;
+    public int WatchingGlyphRefsCount => _watchingGlyphRefs.Count;
 
     public void AddAddress(Address address)
         => _watchingAddresses.TryAdd(address.Value, address);
 
     public void RemoveAddress(Address address)
         => _watchingAddresses.TryRemove(address.Value, out _);
+
+    public void AddGlyphRef(string glyphRef)
+    {
+        if (!string.IsNullOrEmpty(glyphRef))
+            _watchingGlyphRefs.TryAdd(glyphRef.ToLowerInvariant(), 0);
+    }
+
+    public void RemoveGlyphRef(string glyphRef)
+    {
+        if (!string.IsNullOrEmpty(glyphRef))
+            _watchingGlyphRefs.TryRemove(glyphRef.ToLowerInvariant(), out _);
+    }
+
+    public void SeedGlyphRefs(IEnumerable<string> glyphRefs)
+    {
+        foreach (var glyphRef in glyphRefs)
+            AddGlyphRef(glyphRef);
+    }
 
     public void AddToken(TokenId tokenId)
     {
@@ -77,6 +98,21 @@ internal sealed class TransactionFilterWatchSet
 
                 if (output.Address != null)
                     addresses.Add(output.Address.Value);
+            }
+
+            // Radiant Glyph: index outputs carrying a watched induction ref.
+            if (!_watchingGlyphRefs.IsEmpty)
+            {
+                foreach (var refHex in output.GetGlyph(transaction).RefHexes)
+                {
+                    if (_watchingGlyphRefs.ContainsKey(refHex))
+                    {
+                        save = true;
+                        if (output.Address?.Value is { } glyphAddress)
+                            addresses.Add(glyphAddress);
+                        break;
+                    }
+                }
             }
         }
 

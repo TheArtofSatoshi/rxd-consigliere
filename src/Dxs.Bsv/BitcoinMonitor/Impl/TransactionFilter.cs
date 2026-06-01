@@ -66,6 +66,12 @@ public class TransactionFilter : ITransactionFilter
     public void UnmanageUtxoSetForToken(TokenId tokenId)
         => _watchSet.RemoveToken(tokenId);
 
+    public void ManageUtxoSetForGlyphRef(string glyphRef)
+        => _watchSet.AddGlyphRef(glyphRef);
+
+    public void UnmanageUtxoSetForGlyphRef(string glyphRef)
+        => _watchSet.RemoveGlyphRef(glyphRef);
+
     public int QueueLength() => _messageHandler.MessagesInQueue;
 
     #endregion
@@ -77,6 +83,7 @@ public class TransactionFilter : ITransactionFilter
     {
         _watchSet.SeedAddresses(await _transactionStore.GetWatchingAddresses());
         _watchSet.SeedTokens(await _transactionStore.GetWatchingTokens());
+        _watchSet.SeedGlyphRefs(await _transactionStore.GetWatchingGlyphRefs());
 
         _messageHandler = Agent.Start<TxMessage>(Handle);
         _busSub = _txMessageBus.Subscribe(
@@ -90,6 +97,7 @@ public class TransactionFilter : ITransactionFilter
             {
                 WatchingAddresses = _watchSet.WatchingAddressesCount,
                 WatchingTokens = _watchSet.WatchingTokensCount,
+                WatchingGlyphRefs = _watchSet.WatchingGlyphRefsCount,
             }
         );
     }

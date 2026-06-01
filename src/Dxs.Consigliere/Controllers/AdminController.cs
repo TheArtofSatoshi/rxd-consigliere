@@ -352,6 +352,51 @@ public class AdminController(INetworkProvider networkProvider) : BaseController
         });
     }
 
+    [HttpPost("manage/glyph-ref")]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> ManageGlyphRef(
+        [FromBody] WatchGlyphRefRequest request,
+        [FromServices] IDocumentStore documentStore,
+        [FromServices] ITransactionFilter transactionFilter
+    )
+    {
+        var glyphRef = request.GlyphRef?.Trim().ToLowerInvariant();
+
+        // A ref is a 36-byte outpoint (32-byte txid + 4-byte vout) = 72 hex chars.
+        if (string.IsNullOrEmpty(glyphRef) || glyphRef.Length != 72 || !IsHex(glyphRef))
+            return BadRequest($"Unable to parse Glyph ref (expected 72 hex chars): \"{request.GlyphRef}\"");
+
+        try
+        {
+            var watching = new WatchingGlyphRef
+            {
+                GlyphRef = glyphRef,
+                Name = request.Name,
+            };
+
+            if (await documentStore.AddEntity(watching))
+                transactionFilter.ManageUtxoSetForGlyphRef(glyphRef);
+        }
+        catch (Exception exception)
+        {
+            return InternalError(exception.Message);
+        }
+
+        return Ok();
+    }
+
+    private static bool IsHex(string s)
+    {
+        foreach (var c in s)
+        {
+            var ok = c is >= '0' and <= '9' or >= 'a' and <= 'f' or >= 'A' and <= 'F';
+            if (!ok) return false;
+        }
+
+        return true;
+    }
+
     private static string NormalizeHistoryMode(string mode)
         => string.Equals(mode, HistoryPolicyMode.FullHistory, StringComparison.OrdinalIgnoreCase)
             ? HistoryPolicyMode.FullHistory

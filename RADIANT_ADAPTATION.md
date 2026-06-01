@@ -481,3 +481,65 @@ mempool/block tx observed over P2P → `TxScriptParser.TryParseGlyphRefs` →
 `WatchlistMatcher` (Glyph ref) → `ObservedTxIngestor` → RavenDB + journal.
 Remaining to demonstrate fully live: enable the P2P pool in config against the
 node, onboard a Glyph ref, broadcast a token tx, observe the match end-to-end.
+
+## M4 — Radiant transaction signing (node-validated, done)
+
+The plan's #1 risk, resolved. Radiant's BIP143 sighash preimage is the BCH/BSV
+FORKID preimage PLUS one extra 32-byte field — **`hashOutputHashes`** — inserted
+immediately before the regular `hashOutputs`. (Found by reading
+`Radiant-Core/src/script/interpreter.cpp` SignatureHash: `ss << hashOutputHashes;
+ss << hashOutputs;`.) A BSV-shaped preimage — which vnext shipped — produces
+signatures the Radiant node rejects with `mandatory-script-verify-flag-failed`.
+
+- `src/Dxs.Bsv/Transactions/Build/RadiantSignatureHash.cs` — computes
+  `hashOutputHashes` exactly per `Radiant-Core/src/primitives/transaction.h`
+  (`GetHashOutputHashes` / `writeOutputDataSummaryVector` / `getRefHashDataSummary`):
+  per output → `nValue`(8 LE) ‖ dSHA256(scriptPubKey) ‖ `totalRefs`(4 LE) ‖
+  `refsHash`, where `refsHash` = 32 zero bytes if the output has no push refs,
+  else dSHA256 of the **sorted + deduped** 36-byte refs (the set includes BOTH
+  `OP_PUSHINPUTREF` 0xd0 and `OP_PUSHINPUTREFSINGLETON` 0xd8); the full per-output
+  vector is dSHA256'd. dSHA256 = SHA256(SHA256(x)) = `CHashWriter.GetHash`. uint288
+  ordering = little-endian byte compare of the 36-byte ref.
+- `src/Dxs.Bsv/Transactions/Build/BaseInputBuilder.cs` — `Preimage` writes
+  `hashOutputHashes` before `hashOutputs` (+32 bytes), NONE/SINGLE/ALL handling
+  mirroring interpreter.cpp.
+- **Sighash dialect** — `BsvScriptExecutionPolicy.UseRadiantSigHash` (default
+  `true` = Radiant) threads through the internal NBitcoin-fork verifier
+  (`BsvSignatureHashComputer` → `BsvTransactionChecker` →
+  `BsvScriptEvaluationCore`). `BsvScriptExecutionPolicy.BsvCompat` (`false`) keeps
+  the plain BSV preimage so the vendored DSTAS conformance vectors (genuine BSV
+  txs) still validate. One interpreter, two dialects, each checked by its own
+  authority. (The internal verifier's only production consumer is the BSV STAS
+  back-to-genesis lineage evaluator, which is irrelevant on Radiant.)
+
+**VERIFIED LIVE (non-mutating)** against the regtest node:
+`tests/Dxs.Bsv.Tests/LiveRadiantSigningTests.cs` (opt-in, gated on the
+`RADIANT_TEST_UTXO_*` env vars) builds + signs a real P2PKH spend of a live UTXO
+with `TransactionBuilder` and submits it to the node's **`testmempoolaccept`** →
+`allowed:true`, i.e. full consensus script verification passed WITHOUT
+broadcasting. The first run (50k-photon fee) was rejected only with
+`min relay fee not met` — itself proof the signature already verified; bumping
+to a fee above the 10,000 photons/byte floor gives a clean accept.
+
+Unit: `RadiantSignatureHashTests` asserts the byte-exact structure (ref sort/
+dedup, zero-refs, multi-output, differs-from-BSV). **318 offline tests pass**
+(incl. BSV conformance via the dialect); full image `consigliere-vnext:radiant-m4`
+builds clean.
+
+To run the live signing check:
+```bash
+# get a spendable regtest UTXO + WIF + scriptPubKey + a dest address, then:
+docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -e NUGET_PACKAGES=/tmp/nuget \
+  -e RADIANT_RPC_URL=http://host.docker.internal:17443/ \
+  -e RADIANT_RPC_USER=... -e RADIANT_RPC_PASS=... \
+  -e RADIANT_TEST_UTXO_TXID=... -e RADIANT_TEST_UTXO_VOUT=0 \
+  -e RADIANT_TEST_UTXO_SATS=... -e RADIANT_TEST_UTXO_SPK=<spk-hex> \
+  -e RADIANT_TEST_UTXO_WIF=<wif> -e RADIANT_TEST_DEST_ADDR=<addr> \
+  -v "$PWD":/work -w /work mcr.microsoft.com/dotnet/sdk:9.0 \
+  dotnet test tests/Dxs.Bsv.Tests/Dxs.Bsv.Tests.csproj \
+    --filter FullyQualifiedName~LiveRadiantSigningTests
+```
+
+**M0–M4 are now complete and Radiant-validated:** fork/build, opcodes+refs, Glyph
+CBOR + indexing, block-path ingest, P2P transport + live handshake, P2P Glyph
+watching, and now consensus-valid transaction signing.

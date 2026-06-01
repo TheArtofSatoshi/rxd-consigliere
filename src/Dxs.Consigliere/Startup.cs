@@ -1,5 +1,6 @@
 using Dxs.Consigliere.Data.Runtime;
 using Dxs.Consigliere.Setup;
+using OpenTelemetry.Metrics;
 using Raven.Client.Documents;
 using Raven.Migrations;
 
@@ -59,6 +60,16 @@ public class Startup(IConfiguration configuration)
         app.UseRateLimiter();
         app.UseResponseCompression();
         app.UseRequestDecompression();
+
+        // OpenTelemetry Prometheus scrape endpoint — opt-in via
+        // Consigliere:Metrics:OpenTelemetry. Registered before the controller
+        // routes / index fallback so it isn't shadowed by MapFallbackToFile.
+        var metricsConfig = new Configs.MetricsEndpointConfig();
+        configuration.GetSection("Consigliere:Metrics:OpenTelemetry").Bind(metricsConfig);
+        if (metricsConfig.Enabled)
+        {
+            app.UseOpenTelemetryPrometheusScrapingEndpoint(metricsConfig.ScrapeEndpointPath);
+        }
 
         app.UseEndpoints(endpoints =>
         {

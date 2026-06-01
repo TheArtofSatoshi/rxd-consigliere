@@ -25,6 +25,9 @@ public class TransactionFilter : ITransactionFilter
     private readonly ILogger _logger;
     private readonly TransactionFilterWatchSet _watchSet = new();
     private readonly TransactionFilterMetrics _metrics = new();
+    // OpenTelemetry-compatible meter; optional so existing tests/wiring that
+    // construct the filter without it keep working (no-op when null).
+    private readonly ConsigliereMeter _meter;
 
     private readonly CancellationTokenSource _cts = new();
     private readonly Timer _periodicLogger;
@@ -37,7 +40,8 @@ public class TransactionFilter : ITransactionFilter
         IFilteredTransactionMessageBus filteredTransactionMessageBus,
         ITransactionStore transactionStore,
         ITxObservationSink txObservationSink,
-        ILogger<TransactionFilter> logger
+        ILogger<TransactionFilter> logger,
+        ConsigliereMeter meter = null
     )
     {
         _txMessageBus = txMessageBus;
@@ -45,6 +49,7 @@ public class TransactionFilter : ITransactionFilter
         _transactionStore = transactionStore;
         _txObservationSink = txObservationSink;
         _logger = logger;
+        _meter = meter;
 
         _periodicLogger = new Timer(LogCount, null, LogPeriod, LogPeriod);
 
@@ -84,6 +89,12 @@ public class TransactionFilter : ITransactionFilter
         _watchSet.SeedAddresses(await _transactionStore.GetWatchingAddresses());
         _watchSet.SeedTokens(await _transactionStore.GetWatchingTokens());
         _watchSet.SeedGlyphRefs(await _transactionStore.GetWatchingGlyphRefs());
+
+        // Wire the observable gauges to the live watch-set counters.
+        _meter?.SetWatchGauges(
+            () => _watchSet.WatchingAddressesCount,
+            () => _watchSet.WatchingTokensCount,
+            () => _watchSet.WatchingGlyphRefsCount);
 
         _messageHandler = Agent.Start<TxMessage>(Handle);
         _busSub = _txMessageBus.Subscribe(
@@ -142,7 +153,10 @@ public class TransactionFilter : ITransactionFilter
             if (status == TransactionProcessStatus.Unexpected)
                 _logger.LogError("SaveTransaction {TransactionId} returned status Unexpected", transaction.Id);
             else
+            {
                 _metrics.Observe(status);
+                _meter?.RecordSaved(status);
+            }
 
             _logger.LogDebug("{TransactionId} processed with status {Status:G}", transaction.Id, status);
 
@@ -154,6 +168,7 @@ public class TransactionFilter : ITransactionFilter
         }
 
         _metrics.IncrementProcessed();
+        _meter?.RecordScreened();
     }
 
     private Task HandleRemoveTransaction(TxMessage message) => _transactionStore.TryRemoveTransaction(message.TxId);

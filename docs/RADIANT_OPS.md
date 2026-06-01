@@ -133,17 +133,42 @@ docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -e NUGET_PACKAGES=/tmp/nuget
 - Structured Serilog throughout (console sink; Grafana-Loki sink available via
   the upstream `Serilog.Sinks.Grafana.Loki` package).
 
-**Gap (documented, not yet closed):** the project references
-`OpenTelemetry.Instrumentation.AspNetCore` + `.Runtime` but **does not wire a
-`MeterProvider` or expose a Prometheus/OTLP metrics endpoint.** So today metrics
-are pull-via-admin-REST + log scraping, not a scrape-able `/metrics` surface.
+**OpenTelemetry `/metrics` endpoint (now wired, opt-in):** a
+`System.Diagnostics.Metrics.Meter` (`ConsigliereRXD.TransactionFilter`) records
+into the live ingest path alongside the existing counters, and the host exposes a
+Prometheus scrape endpoint when enabled. Instruments:
 
-**Recommended next step** (small, additive): in `Startup`/`Program`, add
-`services.AddOpenTelemetry().WithMetrics(...)` with an OTLP or Prometheus
-exporter, and register a `Meter` that mirrors `TransactionFilterMetrics`
-(tx-seen, tx-matched, tx-saved, reorg-count, watched-entity gauges). This turns
-the existing in-process counters into a standard scrape target without changing
-the ingest logic.
+| Instrument | Type | Meaning |
+| --- | --- | --- |
+| `consigliere_tx_screened_total` | counter | transactions evaluated by the filter |
+| `consigliere_tx_saved_total{status}` | counter | matched txs persisted, tagged by process status |
+| `consigliere_watched_addresses` | gauge | currently watched P2PKH addresses |
+| `consigliere_watched_tokens` | gauge | currently watched STAS/DSTAS token ids |
+| `consigliere_watched_glyph_refs` | gauge | currently watched Radiant Glyph refs |
+
+Enable it (default **off**):
+
+```jsonc
+"Consigliere": { "Metrics": { "OpenTelemetry": {
+  "Enabled": true,
+  "ScrapeEndpointPath": "/metrics",
+  "IncludeAspNetCoreInstrumentation": true,   // adds kestrel/http.server.* metrics
+  "IncludeRuntimeInstrumentation": true       // adds GC / threadpool / etc.
+}}}
+```
+
+When enabled, `GET /metrics` returns Prometheus text format
+(`Content-Type: text/plain; version=0.0.4`) with the Consigliere instruments plus
+ASP.NET Core + runtime metrics. When disabled, the endpoint is not registered (the
+path falls through to the SPA, no metrics surface). **Verified live:** with the
+flag on and the app pointed at the regtest node, `/metrics` served HTTP 200 with
+the three `consigliere_watched_*` gauges (scope `ConsigliereRXD.TransactionFilter`)
++ 140 lines of runtime/kestrel metrics; with the flag off, `/metrics` returns the
+SPA fallback (no metrics). Covered by `ConsigliereMeterTests`.
+
+The earlier admin-REST snapshots (`/api/admin/metrics/sources`) and the 1-minute
+Serilog counter log remain — the OTel endpoint is an additional, standard scrape
+target, not a replacement.
 
 ---
 
@@ -154,5 +179,5 @@ the ingest logic.
 | Reorg-depth review | ✅ Adequate — 200-header P2P window + unbounded RPC walk vs. chain's 6-block finalization |
 | Mainnet param sweep | ✅ Clean — no blocking hardcodes; mainnet is config-only (caveat: no P2P DNS seeds) |
 | Throughput test | ✅ ~721k ops/sec hot path; matcher is not the bottleneck; regression guard added |
-| Metrics/observability audit | ⚠️ Solid logging + admin-REST snapshots; **OTel `/metrics` endpoint not wired** (documented next step) |
+| Metrics/observability audit | ✅ Serilog + admin-REST snapshots + **OTel `/metrics` Prometheus endpoint** (opt-in, live-verified) |
 | Consigliere-RXD vs RXinDexer doc | ✅ Section 1 above |

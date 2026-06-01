@@ -11,6 +11,8 @@
       <PackageReference Include="MediatR" Version="13.0.0" />
       <PackageReference Include="Microsoft.AspNetCore.SignalR.Protocols.MessagePack" Version="9.0.8" />
       <PackageReference Include="Microsoft.Extensions.Hosting.Systemd" Version="9.0.8" />
+      <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.12.0" />
+      <PackageReference Include="OpenTelemetry.Exporter.Prometheus.AspNetCore" Version="1.12.0-beta.1" />
       <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.12.0" />
       <PackageReference Include="OpenTelemetry.Instrumentation.Runtime" Version="1.12.0" />
       <PackageReference Include="Polly" Version="8.6.3" />
